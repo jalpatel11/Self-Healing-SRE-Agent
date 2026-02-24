@@ -47,16 +47,16 @@ def should_continue_investigation(state: SREAgentState) -> Literal["mechanic", "
     
     # Safety limit: Max 3 attempts
     if iteration > 3:
-        print(f"\n⚠️  Maximum iterations (3) reached. Ending workflow.")
+        print(f"\n[WARNING] Maximum iterations (3) reached. Ending workflow.")
         return "end"
     
     # Success: Root cause identified, proceed to fix generation
     if root_cause_found:
-        print(f"\n✅ Root cause identified. Moving to Mechanic Agent...")
+        print(f"\n[SUCCESS] Root cause identified. Moving to Mechanic Agent...")
         return "mechanic"
     
     # Continue investigation
-    print(f"\n🔄 Root cause not yet clear. Continuing investigation (attempt {iteration}/3)...")
+    print(f"\n[RETRY] Root cause not yet clear. Continuing investigation (attempt {iteration}/3)...)")
     return "investigator"
 
 
@@ -91,18 +91,18 @@ def should_continue_after_validation(state: SREAgentState) -> Literal["pr_creato
     
     # Success case: Tests passed!
     if fix_validated:
-        print(f"\n✅ Fix validated successfully! Moving to PR creation...")
+        print(f"\n[SUCCESS] Fix validated successfully! Moving to PR creation...")
         return "pr_creator"
     
     # Safety limit: Max 3 total attempts (Investigator + Mechanic + Validator cycles)
     if iteration >= 3:
-        print(f"\n❌ Maximum attempts (3) reached. Validation still failing.")
+        print(f"\n[ERROR] Maximum attempts (3) reached. Validation still failing.")
         print(f"   Last errors: {validation_errors}")
         print(f"   Ending workflow without creating PR.")
         return "end"
     
     # Self-correction: Tests failed, loop back to Investigator
-    print(f"\n🔄 SELF-CORRECTION LOOP: Tests failed. Routing back to Investigator...")
+    print(f"\n[SELF-CORRECTION LOOP] Tests failed. Routing back to Investigator...")
     print(f"   Attempt: {iteration}/3")
     print(f"   Validation errors will be fed back for reconsideration.")
     return "investigator"
@@ -198,12 +198,12 @@ def visualize_graph(output_file: str = "sre_agent_graph.png"):
         with open(output_file, "wb") as f:
             f.write(graph_image)
         
-        print(f"✅ Graph visualization saved to {output_file}")
+        print(f"[SUCCESS] Graph visualization saved to {output_file}")
         return Image(graph_image)
     except ImportError:
-        print("⚠️  Graph visualization requires IPython. Skipping.")
+        print("[WARNING] Graph visualization requires IPython. Skipping.")
     except Exception as e:
-        print(f"⚠️  Could not generate graph visualization: {e}")
+        print(f"[WARNING] Could not generate graph visualization: {e}")
 
 
 # Create and export the compiled graph
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     """
     Test the graph structure (doesn't execute, just validates).
     """
-    print("🔧 Self-Healing SRE Agent Graph")
+    print("Self-Healing SRE Agent Graph")
     print("=" * 60)
     print("\nGraph Structure:")
     print("  START → Investigator")
@@ -223,12 +223,12 @@ if __name__ == "__main__":
     print("    └─ (max iterations)   → END")
     print("\n  Mechanic → Validator")
     print("\n  Validator")
-    print("    ├─ (tests passed)     → PR Creator → END ✅")
+    print("    ├─ (tests passed)     → PR Creator → END [SUCCESS]")
     print("    ├─ (tests failed)     → Investigator (SELF-CORRECTION LOOP)")
-    print("    └─ (max attempts)     → END ❌")
+    print("    └─ (max attempts)     → END [FAILED]")
     print("\n" + "=" * 60)
-    print("✅ Graph definition complete!")
-    print("\n💡 The self-correction loop allows the agent to:")
+    print("[SUCCESS] Graph definition complete!")
+    print("\n[INFO] The self-correction loop allows the agent to:")
     print("   1. Receive test failure feedback from Validator")
     print("   2. Route back to Investigator with error context")
     print("   3. Reconsider the root cause analysis")

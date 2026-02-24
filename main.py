@@ -38,24 +38,24 @@ def check_environment():
     if not openai_key or openai_key == "your_openai_api_key_here":
         if not anthropic_key or anthropic_key == "your_anthropic_api_key_here":
             errors.append(
-                "❌ No LLM API key configured. Please set OPENAI_API_KEY or "
+                "[ERROR] No LLM API key configured. Please set OPENAI_API_KEY or "
                 "ANTHROPIC_API_KEY in your .env file."
             )
     
     # Check LangSmith (optional but recommended)
     langsmith_key = os.getenv("LANGCHAIN_API_KEY")
     if not langsmith_key or langsmith_key == "your_langsmith_api_key_here":
-        print("⚠️  LangSmith not configured. Tracing will be disabled.")
+        print("[WARNING] LangSmith not configured. Tracing will be disabled.")
         print("   Get a free key at: https://smith.langchain.com/")
         # Don't add to errors - this is optional
     else:
-        print("✅ LangSmith tracing enabled")
+        print("[INFO] LangSmith tracing enabled")
         print(f"   Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
     
     # Check GitHub (optional for demo mode)
     github_token = os.getenv("GITHUB_TOKEN")
     if not github_token or github_token == "your_github_personal_access_token":
-        print("⚠️  GitHub integration not configured. Will run in demo mode.")
+        print("[WARNING] GitHub integration not configured. Will run in demo mode.")
         # Don't add to errors - we can simulate PRs
     
     return len(errors) == 0, errors
@@ -71,7 +71,7 @@ def trigger_crash() -> bool:
     try:
         import httpx
         
-        print("\n🔥 Triggering application crash...")
+        print("\n[TRIGGER] Triggering application crash...")
         response = httpx.get(
             "http://localhost:8000/api/data",
             headers={"X-Trigger-Bug": "true"},
@@ -79,18 +79,18 @@ def trigger_crash() -> bool:
         )
         
         if response.status_code == 500:
-            print("✅ Crash triggered successfully (500 error)")
+            print("[SUCCESS] Crash triggered successfully (500 error)")
             return True
         else:
-            print(f"⚠️  Expected 500 error, got {response.status_code}")
+            print(f"[WARNING] Expected 500 error, got {response.status_code}")
             return False
     
     except httpx.ConnectError:
-        print("❌ Could not connect to FastAPI app. Is it running on port 8000?")
+        print("[ERROR] Could not connect to FastAPI app. Is it running on port 8000?")
         print("   Start it with: python app.py")
         return False
     except Exception as e:
-        print(f"❌ Error triggering crash: {e}")
+        print(f"[ERROR] Error triggering crash: {e}")
         return False
 
 
@@ -110,7 +110,7 @@ def run_self_healing_workflow(
     """
     if not initial_error:
         initial_error = """
-🚨 ALERT: Application Error Detected
+[ALERT] Application Error Detected
 
 Endpoint: /api/data
 Status: 500 Internal Server Error
@@ -123,7 +123,7 @@ Please investigate and fix the issue.
     
     # Create initial state
     print("\n" + "=" * 60)
-    print("🤖 SELF-HEALING SRE AGENT - Starting Workflow")
+    print("SELF-HEALING SRE AGENT - Starting Workflow")
     print("=" * 60)
     
     initial_state = create_initial_state(initial_error)
@@ -137,7 +137,7 @@ Please investigate and fix the issue.
         }
     
     # Execute the graph
-    print("\n📊 Executing LangGraph workflow...")
+    print("\n[WORKFLOW] Executing LangGraph workflow...")
     print(f"   Thread ID: {config['configurable']['thread_id']}")
     
     try:
@@ -149,7 +149,7 @@ Please investigate and fix the issue.
             final_state = output
         
         print("\n" + "=" * 60)
-        print("✅ WORKFLOW COMPLETED")
+        print("[SUCCESS] WORKFLOW COMPLETED")
         print("=" * 60)
         
         # Extract final state from the last output
@@ -158,14 +158,14 @@ Please investigate and fix the issue.
             state_data = final_state[node_name]
             
             # Print summary
-            print("\n📋 Summary:")
+            print("\n[SUMMARY]")
             print(f"   Root Cause Identified: {state_data.get('root_cause_identified', False)}")
             print(f"   Fix Validated: {state_data.get('fix_validated', False)}")
             print(f"   PR Status: {state_data.get('pr_status', 'N/A')}")
             print(f"   Total Iterations: {state_data.get('iteration_count', 0)}")
             
             if state_data.get('pr_url'):
-                print(f"\n🎉 Pull Request:")
+                print(f"\n[PULL REQUEST]")
                 print(state_data['pr_url'])
             
             return state_data
@@ -173,7 +173,7 @@ Please investigate and fix the issue.
         return {}
     
     except Exception as e:
-        print(f"\n❌ Workflow execution failed: {e}")
+        print(f"\n[ERROR] Workflow execution failed: {e}")
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
@@ -183,19 +183,19 @@ def main():
     """
     Main function - can be called from command line.
     """
-    print("🤖 Self-Healing SRE Agent")
+    print("Self-Healing SRE Agent")
     print("=" * 60)
     
     # Check environment
     is_valid, errors = check_environment()
     if not is_valid:
-        print("\n❌ Environment validation failed:")
+        print("\n[ERROR] Environment validation failed:")
         for error in errors:
             print(f"   {error}")
-        print("\n💡 Copy .env.example to .env and configure your API keys")
+        print("\n[INFO] Copy .env.example to .env and configure your API keys")
         sys.exit(1)
     
-    print("✅ Environment configured correctly\n")
+    print("[SUCCESS] Environment configured correctly\n")
     
     # Ask if user wants to trigger the crash
     print("Options:")
@@ -211,15 +211,15 @@ def main():
     
     if choice == "1":
         if trigger_crash():
-            print("\n✅ Crash logged to app_logs.txt")
-            print("🤖 Starting self-healing workflow...\n")
+            print("\n[SUCCESS] Crash logged to app_logs.txt")
+            print("[WORKFLOW] Starting self-healing workflow...\n")
             run_self_healing_workflow()
         else:
-            print("\n❌ Could not trigger crash. Make sure app.py is running.")
+            print("\n[ERROR] Could not trigger crash. Make sure app.py is running.")
             sys.exit(1)
     
     elif choice == "2":
-        print("\n🤖 Starting self-healing workflow...\n")
+        print("\n[WORKFLOW] Starting self-healing workflow...\n")
         run_self_healing_workflow()
     
     elif choice == "3":
@@ -227,7 +227,7 @@ def main():
         sys.exit(0)
     
     else:
-        print("\n❌ Invalid option")
+        print("\n[ERROR] Invalid option")
         sys.exit(1)
 
 

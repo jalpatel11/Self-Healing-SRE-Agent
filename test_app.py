@@ -20,9 +20,9 @@ def test_normal_request():
         response = httpx.get("http://localhost:8000/api/data")
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
-        print("✓ Request successful")
+        print("[SUCCESS] Request successful")
     except Exception as e:
-        print(f"✗ Request failed: {e}")
+        print(f"[ERROR] Request failed: {e}")
 
 
 def test_bug_trigger():
@@ -40,12 +40,12 @@ def test_bug_trigger():
         print(f"Response: {response.json()}")
         
         if response.status_code == 500:
-            print("✓ Bug triggered successfully (500 error as expected)")
-            print("✓ Check app_logs.txt for error details")
+            print("[SUCCESS] Bug triggered successfully (500 error as expected)")
+            print("[INFO] Check app_logs.txt for error details")
         else:
-            print("✗ Expected 500 error but got different status")
+            print("[WARNING] Expected 500 error but got different status")
     except Exception as e:
-        print(f"✗ Request failed: {e}")
+        print(f"[ERROR] Request failed: {e}")
 
 
 def test_health_check():
@@ -58,13 +58,13 @@ def test_health_check():
         response = httpx.get("http://localhost:8000/health")
         print(f"Status Code: {response.status_code}")
         print(f"Response: {response.json()}")
-        print("✓ Health check successful")
+        print("[SUCCESS] Health check successful")
     except Exception as e:
-        print(f"✗ Health check failed: {e}")
+        print(f"[ERROR] Health check failed: {e}")
 
 
 if __name__ == "__main__":
-    print("\n🚀 Starting FastAPI App Tests")
+    print("\nStarting FastAPI App Tests")
     print("Make sure the app is running: python app.py")
     
     # Wait a moment for the app to be ready

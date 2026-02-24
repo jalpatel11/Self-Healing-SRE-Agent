@@ -268,12 +268,12 @@ def open_github_pr(
             base=default_branch
         )
         
-        return f"✅ Pull Request created successfully!\n\nPR URL: {pr.html_url}\nPR Number: #{pr.number}"
+        return f"[SUCCESS] Pull Request created successfully!\n\nPR URL: {pr.html_url}\nPR Number: #{pr.number}"
     
     except GithubException as e:
-        return f"❌ GitHub API Error: {str(e)}"
+        return f"[ERROR] GitHub API Error: {str(e)}"
     except Exception as e:
-        return f"❌ Error creating PR: {str(e)}"
+        return f"[ERROR] Error creating PR: {str(e)}"
 
 
 def _simulate_pr_creation(
@@ -304,9 +304,9 @@ def _simulate_pr_creation(
     simulated_pr_url = f"https://github.com/your-repo/pull/123"
     
     return f"""
-🎭 SIMULATED PR CREATION (Demo Mode)
+[SIMULATED PR CREATION - Demo Mode]
 
-✅ Pull Request would be created with:
+[INFO] Pull Request would be created with:
 
 Title: {title}
 Branch: {branch_name}
@@ -317,7 +317,7 @@ Body:
 
 Fix code has been saved to: {fix_file}
 
-🔧 To enable real PR creation:
+To enable real PR creation:
 1. Set GITHUB_TOKEN in .env
 2. Set GITHUB_REPO in .env (format: username/repo-name)
 
