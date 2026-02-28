@@ -13,18 +13,15 @@ Run with: streamlit run ui.py
 """
 
 import os
-import sys
 import time
-import subprocess
-import signal
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 import streamlit as st
 import httpx
 from dotenv import load_dotenv
 
 # Import our modules
+from config import settings
 from state import create_initial_state
 from graph import sre_graph
 
@@ -83,9 +80,9 @@ st.markdown("""
 def check_app_running() -> bool:
     """Check if the FastAPI app is running."""
     try:
-        response = httpx.get("http://localhost:8000/health", timeout=2.0)
+        response = httpx.get(f"http://localhost:{settings.app_port}/health", timeout=2.0)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -93,7 +90,7 @@ def trigger_crash() -> tuple[bool, str]:
     """Trigger the crash in the FastAPI app."""
     try:
         response = httpx.get(
-            "http://localhost:8000/api/data",
+            f"http://localhost:{settings.app_port}/api/data",
             headers={"X-Trigger-Bug": "true"},
             timeout=5.0
         )
@@ -119,7 +116,7 @@ def run_workflow():
 Endpoint: /api/data
 Status: 500 Internal Server Error
 Error Type: KeyError
-Timestamp: {datetime.utcnow().isoformat()}
+Timestamp: {datetime.now(timezone.utc).isoformat()}
 
 The monitoring system has detected a crash in the production API.
 Please investigate and fix the issue.
@@ -243,12 +240,10 @@ Please investigate and fix the issue.
                     st.code(final_state['fix_code'], language="python")
             
             # LangSmith trace link
-            langsmith_key = os.getenv("LANGCHAIN_API_KEY")
-            if langsmith_key and langsmith_key != "your_langsmith_api_key_here":
+            if settings.langchain_tracing_v2 and settings.langchain_api_key:
                 st.markdown("### 🔗 LangSmith Trace")
-                project = os.getenv("LANGCHAIN_PROJECT", "default")
-                st.info(f"View detailed trace in LangSmith Project: **{project}**")
-                st.markdown(f"[Open LangSmith Dashboard](https://smith.langchain.com/)")
+                st.info(f"View detailed trace in LangSmith Project: **{settings.langchain_project}**")
+                st.markdown("[Open LangSmith Dashboard](https://smith.langchain.com/)")
     
     except Exception as e:
         st.error(f"❌ Workflow failed: {str(e)}")
@@ -276,25 +271,19 @@ def main():
         # Check environment
         st.subheader("Environment Status")
         
-        openai_key = os.getenv("OPENAI_API_KEY")
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        langsmith_key = os.getenv("LANGCHAIN_API_KEY")
-        github_token = os.getenv("GITHUB_TOKEN")
-        
-        if openai_key and openai_key != "your_openai_api_key_here":
-            st.success("✅ OpenAI API Key")
-        elif anthropic_key and anthropic_key != "your_anthropic_api_key_here":
-            st.success("✅ Anthropic API Key")
+        llm_model = settings.groq_model if settings.llm_provider == "groq" else settings.gemini_model
+        if settings.groq_api_key or settings.gemini_api_key:
+            st.success(f"✅ LLM: {settings.llm_provider} ({llm_model})")
         else:
             st.error("❌ No LLM API Key")
-        
-        if langsmith_key and langsmith_key != "your_langsmith_api_key_here":
+
+        if settings.langchain_tracing_v2 and settings.langchain_api_key:
             st.success("✅ LangSmith Tracing")
-            st.caption(f"Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
+            st.caption(f"Project: {settings.langchain_project}")
         else:
             st.warning("⚠️ LangSmith Not Configured")
-        
-        if github_token and github_token != "your_github_personal_access_token":
+
+        if settings.github_token and settings.github_repo:
             st.success("✅ GitHub Integration")
         else:
             st.info("ℹ️ Demo Mode (No GitHub)")
@@ -328,7 +317,7 @@ def main():
             app_running = check_app_running()
             
             if app_running:
-                st.success("✅ FastAPI app is running on port 8000")
+                st.success(f"✅ FastAPI app is running on port {settings.app_port}")
             else:
                 st.error("❌ FastAPI app is not running")
                 st.info("Start it with: `python app.py`")
@@ -355,7 +344,7 @@ def main():
         
         if st.button("🚀 Run Self-Healing Agent", type="primary", use_container_width=True):
             # Check if logs exist
-            if not os.path.exists("app_logs.txt"):
+            if not os.path.exists(settings.log_file):
                 st.warning("⚠️ No logs found. Trigger a crash first!")
             else:
                 run_workflow()
@@ -379,10 +368,10 @@ def main():
         """)
         
         st.markdown("### 🔄 Self-Correction Loop")
-        st.info("""
+        st.info(f"""
         When tests fail, the Validator routes back to the Investigator with error feedback.
         This allows the agent to reconsider its analysis and generate an improved fix.
-        Maximum 3 attempts to prevent infinite loops.
+        Maximum {settings.max_iterations} attempts to prevent infinite loops.
         """)
     
     with tab3:
@@ -399,13 +388,14 @@ def main():
         
         with st.expander("🔑 Required API Keys"):
             st.markdown("""
-            - **OpenAI or Anthropic**: For LLM reasoning (required)
-            - **LangSmith**: For tracing and observability (highly recommended)
+            - **Groq** (free): For LLM reasoning — primary provider
+            - **Gemini** (free): Alternative LLM provider
+            - **LangSmith**: For tracing and observability (optional)
             - **GitHub**: For actual PR creation (optional, works in demo mode)
-            
+
             Get keys at:
-            - OpenAI: https://platform.openai.com/api-keys
-            - Anthropic: https://console.anthropic.com/
+            - Groq: https://console.groq.com
+            - Gemini: https://aistudio.google.com
             - LangSmith: https://smith.langchain.com/
             - GitHub: https://github.com/settings/tokens
             """)

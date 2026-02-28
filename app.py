@@ -10,24 +10,34 @@ attempts to access a dictionary key that doesn't exist, causing a KeyError.
 """
 
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
+from config import settings
 
-# Configure logging to write to both console and file
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app_logs.txt"),
-        logging.StreamHandler()
-    ]
+
+# Configure rotating log handler (10 MB per file, keep 5 backups)
+os.makedirs(
+    os.path.dirname(settings.log_file) if os.path.dirname(settings.log_file) else ".",
+    exist_ok=True,
 )
+
+_fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+_file_handler = RotatingFileHandler(
+    settings.log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
+_file_handler.setFormatter(_fmt)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +102,7 @@ async def health_check():
     logger.info("Health check requested")
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         service="SRE Demo Service"
     )
 
@@ -146,7 +156,7 @@ async def get_data(
     return DataResponse(
         data=user_config,
         message="Data retrieved successfully",
-        timestamp=datetime.utcnow().isoformat()
+        timestamp=datetime.now(timezone.utc).isoformat()
     )
 
 
@@ -164,7 +174,7 @@ async def keyerror_exception_handler(request: Request, exc: KeyError):
         "missing_key": str(exc),
         "path": request.url.path,
         "method": request.method,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
     logger.error(
@@ -192,7 +202,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal Server Error",
             "message": str(exc),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 
@@ -202,7 +212,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=settings.app_port,
         reload=True,
         log_level="info"
     )

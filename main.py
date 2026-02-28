@@ -7,13 +7,13 @@ It orchestrates the entire self-healing workflow from error detection
 to PR creation.
 """
 
-import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
 
+from config import settings
 from state import create_initial_state
 from graph import sre_graph
 
@@ -22,43 +22,25 @@ from graph import sre_graph
 load_dotenv()
 
 
-def check_environment():
+def check_environment() -> tuple:
     """
-    Validate that required environment variables are configured.
-    
+    Validate all required environment variables using Pydantic config.
+
     Returns:
         tuple: (is_valid, error_messages)
     """
-    errors = []
-    
-    # Check for at least one LLM API key
-    openai_key = os.getenv("OPENAI_API_KEY")
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    
-    if not openai_key or openai_key == "your_openai_api_key_here":
-        if not anthropic_key or anthropic_key == "your_anthropic_api_key_here":
-            errors.append(
-                "[ERROR] No LLM API key configured. Please set OPENAI_API_KEY or "
-                "ANTHROPIC_API_KEY in your .env file."
-            )
-    
-    # Check LangSmith (optional but recommended)
-    langsmith_key = os.getenv("LANGCHAIN_API_KEY")
-    if not langsmith_key or langsmith_key == "your_langsmith_api_key_here":
-        print("[WARNING] LangSmith not configured. Tracing will be disabled.")
-        print("   Get a free key at: https://smith.langchain.com/")
-        # Don't add to errors - this is optional
-    else:
-        print("[INFO] LangSmith tracing enabled")
-        print(f"   Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
-    
-    # Check GitHub (optional for demo mode)
-    github_token = os.getenv("GITHUB_TOKEN")
-    if not github_token or github_token == "your_github_personal_access_token":
-        print("[WARNING] GitHub integration not configured. Will run in demo mode.")
-        # Don't add to errors - we can simulate PRs
-    
-    return len(errors) == 0, errors
+    try:
+        # settings is already initialized at import time — report its state
+        print(f"   LLM Provider: {settings.llm_provider}")
+        print(f"   GitHub Repo: {settings.github_repo or '(not set — simulation mode)'}")
+        print(f"   Log File: {settings.log_file}")
+        if settings.langchain_tracing_v2:
+            print(f"[INFO] LangSmith tracing enabled (project: {settings.langchain_project})")
+        else:
+            print("[WARNING] LangSmith not configured. Tracing will be disabled.")
+        return True, []
+    except Exception as e:
+        return False, [str(e)]
 
 
 def trigger_crash() -> bool:
@@ -73,7 +55,7 @@ def trigger_crash() -> bool:
         
         print("\n[TRIGGER] Triggering application crash...")
         response = httpx.get(
-            "http://localhost:8000/api/data",
+            f"http://localhost:{settings.app_port}/api/data",
             headers={"X-Trigger-Bug": "true"},
             timeout=5.0
         )
@@ -119,7 +101,7 @@ Timestamp: {timestamp}
 
 The monitoring system has detected a crash in the production API.
 Please investigate and fix the issue.
-""".format(timestamp=datetime.utcnow().isoformat())
+""".format(timestamp=datetime.now(timezone.utc).isoformat())
     
     # Create initial state
     print("\n" + "=" * 60)
@@ -165,7 +147,7 @@ Please investigate and fix the issue.
             print(f"   Total Iterations: {state_data.get('iteration_count', 0)}")
             
             if state_data.get('pr_url'):
-                print(f"\n[PULL REQUEST]")
+                print("\n[PULL REQUEST]")
                 print(state_data['pr_url'])
             
             return state_data
