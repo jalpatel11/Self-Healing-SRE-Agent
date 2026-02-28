@@ -89,9 +89,9 @@ def create_initial_state(error_message: str) -> dict:
     Returns:
         A dictionary with default values for all state fields.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     from langchain_core.messages import HumanMessage
-    
+
     return {
         "messages": [HumanMessage(content=error_message)],
         "error_logs": "",
@@ -103,5 +103,5 @@ def create_initial_state(error_message: str) -> dict:
         "pr_status": "pending",
         "pr_url": "",
         "iteration_count": 0,
-        "error_timestamp": datetime.utcnow().isoformat(),
+        "error_timestamp": datetime.now(timezone.utc).isoformat(),
     }
