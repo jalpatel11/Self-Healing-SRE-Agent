@@ -16,15 +16,14 @@ import os
 import time
 from datetime import datetime, timezone
 
-import streamlit as st
 import httpx
+import streamlit as st
 from dotenv import load_dotenv
 
 # Import our modules
 from config import settings
-from state import create_initial_state
 from graph import sre_graph
-
+from state import create_initial_state
 
 # Load environment variables
 load_dotenv()
@@ -94,12 +93,12 @@ def trigger_crash() -> tuple[bool, str]:
             headers={"X-Trigger-Bug": "true"},
             timeout=5.0
         )
-        
+
         if response.status_code == 500:
             return True, "Crash triggered successfully! Error logged to app_logs.txt"
         else:
             return False, f"Expected 500 error, got {response.status_code}"
-    
+
     except httpx.ConnectError:
         return False, "FastAPI app is not running. Start it first!"
     except Exception as e:
@@ -108,7 +107,7 @@ def trigger_crash() -> tuple[bool, str]:
 
 def run_workflow():
     """Execute the self-healing workflow with real-time updates."""
-    
+
     # Create initial state
     initial_error = f"""
 🚨 ALERT: Application Error Detected
@@ -121,40 +120,40 @@ Timestamp: {datetime.now(timezone.utc).isoformat()}
 The monitoring system has detected a crash in the production API.
 Please investigate and fix the issue.
 """
-    
+
     initial_state = create_initial_state(initial_error)
-    
+
     config = {
         "configurable": {
             "thread_id": f"sre-ui-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         }
     }
-    
+
     # Create containers for real-time updates
     status_container = st.container()
     steps_container = st.container()
     result_container = st.container()
-    
+
     with status_container:
         st.info("🤖 Executing self-healing workflow...")
         progress_bar = st.progress(0)
         status_text = st.empty()
-    
+
     try:
         # Stream the workflow execution
         step_count = 0
         node_names = []
-        
+
         for output in sre_graph.stream(initial_state, config):
             step_count += 1
             node_name = list(output.keys())[0]
             node_names.append(node_name)
             state_data = output[node_name]
-            
+
             # Update progress
             progress_bar.progress(min(step_count * 20, 100))
             status_text.text(f"Step {step_count}: {node_name.title()}...")
-            
+
             # Display step details
             with steps_container:
                 with st.expander(f"Step {step_count}: {node_name.title()}", expanded=True):
@@ -164,13 +163,13 @@ Please investigate and fix the issue.
                         st.write(f"- Root cause found: {state_data.get('root_cause_identified', False)}")
                         if state_data.get('root_cause_analysis'):
                             st.code(state_data['root_cause_analysis'][:500] + "...")
-                    
+
                     elif node_name == "mechanic":
                         st.write("🔧 **Mechanic Agent**")
                         st.write("- Generating code fix...")
                         if state_data.get('fix_code'):
                             st.code(state_data['fix_code'][:500] + "...", language="python")
-                    
+
                     elif node_name == "validator":
                         st.write("✅ **Validator Node**")
                         validated = state_data.get('fix_validated', False)
@@ -181,70 +180,70 @@ Please investigate and fix the issue.
                             errors = state_data.get('validation_errors', [])
                             for error in errors:
                                 st.write(f"  - {error}")
-                    
+
                     elif node_name == "pr_creator":
                         st.write("📝 **PR Creator Node**")
                         st.write("- Creating GitHub Pull Request...")
-            
+
             time.sleep(0.5)  # Small delay for better UX
-        
+
         # Final results
         progress_bar.progress(100)
         status_text.text("✅ Workflow completed!")
-        
+
         # Get final state
         final_state = state_data
-        
+
         with result_container:
             st.markdown("---")
             st.markdown("## 📊 Final Results")
-            
+
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 if final_state.get('root_cause_identified'):
                     st.success("✅ Root Cause Found")
                 else:
                     st.error("❌ Root Cause Not Found")
-            
+
             with col2:
                 if final_state.get('fix_validated'):
                     st.success("✅ Fix Validated")
                 else:
                     st.error("❌ Fix Invalid")
-            
+
             with col3:
                 pr_status = final_state.get('pr_status', 'pending')
                 if pr_status == 'created':
                     st.success("✅ PR Created")
                 else:
                     st.error(f"❌ PR {pr_status}")
-            
+
             with col4:
                 iterations = final_state.get('iteration_count', 0)
                 st.metric("Iterations", iterations)
-            
+
             # Display PR if created
             if final_state.get('pr_url'):
                 st.markdown("### 🎉 Pull Request")
                 st.code(final_state['pr_url'], language="text")
-            
+
             # Display root cause analysis
             if final_state.get('root_cause_analysis'):
                 with st.expander("📋 Root Cause Analysis", expanded=False):
                     st.write(final_state['root_cause_analysis'])
-            
+
             # Display generated fix
             if final_state.get('fix_code'):
                 with st.expander("🔧 Generated Fix Code", expanded=False):
                     st.code(final_state['fix_code'], language="python")
-            
+
             # LangSmith trace link
             if settings.langchain_tracing_v2 and settings.langchain_api_key:
                 st.markdown("### 🔗 LangSmith Trace")
                 st.info(f"View detailed trace in LangSmith Project: **{settings.langchain_project}**")
                 st.markdown("[Open LangSmith Dashboard](https://smith.langchain.com/)")
-    
+
     except Exception as e:
         st.error(f"❌ Workflow failed: {str(e)}")
         st.exception(e)
@@ -252,7 +251,7 @@ Please investigate and fix the issue.
 
 def main():
     """Main Streamlit UI."""
-    
+
     # Header
     st.markdown('<h1 class="main-header">🤖 Self-Healing SRE Agent</h1>', unsafe_allow_html=True)
     st.markdown(
@@ -261,16 +260,16 @@ def main():
         '</p>',
         unsafe_allow_html=True
     )
-    
+
     st.markdown("---")
-    
+
     # Sidebar - Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
-        
+
         # Check environment
         st.subheader("Environment Status")
-        
+
         llm_model = settings.groq_model if settings.llm_provider == "groq" else settings.gemini_model
         if settings.groq_api_key or settings.gemini_api_key:
             st.success(f"✅ LLM: {settings.llm_provider} ({llm_model})")
@@ -287,9 +286,9 @@ def main():
             st.success("✅ GitHub Integration")
         else:
             st.info("ℹ️ Demo Mode (No GitHub)")
-        
+
         st.markdown("---")
-        
+
         st.subheader("📖 About")
         st.markdown("""
         This agent demonstrates:
@@ -299,32 +298,32 @@ def main():
         - 📝 GitHub PR automation
         - 📊 LangSmith observability
         """)
-        
+
         st.markdown("---")
         st.caption("Built with LangGraph & Streamlit")
-    
+
     # Main content area
     tab1, tab2, tab3 = st.tabs(["🚀 Control Panel", "📊 Workflow", "📚 Help"])
-    
+
     with tab1:
         st.header("Control Panel")
-        
+
         # Check API status
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("FastAPI Application")
             app_running = check_app_running()
-            
+
             if app_running:
                 st.success(f"✅ FastAPI app is running on port {settings.app_port}")
             else:
                 st.error("❌ FastAPI app is not running")
                 st.info("Start it with: `python app.py`")
-        
+
         with col2:
             st.subheader("Quick Actions")
-            
+
             if st.button("🔥 Trigger System Crash", type="primary", use_container_width=True):
                 if app_running:
                     success, message = trigger_crash()
@@ -334,24 +333,24 @@ def main():
                         st.error(message)
                 else:
                     st.error("Start FastAPI app first!")
-            
+
             st.caption("This sends a request with X-Trigger-Bug: true header")
-        
+
         st.markdown("---")
-        
+
         # Workflow execution
         st.header("🤖 Self-Healing Workflow")
-        
+
         if st.button("🚀 Run Self-Healing Agent", type="primary", use_container_width=True):
             # Check if logs exist
             if not os.path.exists(settings.log_file):
                 st.warning("⚠️ No logs found. Trigger a crash first!")
             else:
                 run_workflow()
-    
+
     with tab2:
         st.header("Workflow Architecture")
-        
+
         st.markdown("""
         ```mermaid
         graph TD
@@ -366,17 +365,17 @@ def main():
             E --> Z
         ```
         """)
-        
+
         st.markdown("### 🔄 Self-Correction Loop")
         st.info(f"""
         When tests fail, the Validator routes back to the Investigator with error feedback.
         This allows the agent to reconsider its analysis and generate an improved fix.
         Maximum {settings.max_iterations} attempts to prevent infinite loops.
         """)
-    
+
     with tab3:
         st.header("📚 Help & Documentation")
-        
+
         with st.expander("🚀 Quick Start"):
             st.markdown("""
             1. **Configure API Keys**: Copy `.env.example` to `.env` and add your keys
@@ -385,7 +384,7 @@ def main():
             4. **Run Agent**: Click "Run Self-Healing Agent" button
             5. **View Results**: See the agent analyze, fix, and create a PR!
             """)
-        
+
         with st.expander("🔑 Required API Keys"):
             st.markdown("""
             - **Groq** (free): For LLM reasoning — primary provider
@@ -399,20 +398,20 @@ def main():
             - LangSmith: https://smith.langchain.com/
             - GitHub: https://github.com/settings/tokens
             """)
-        
+
         with st.expander("🎯 The Bug"):
             st.markdown("""
             The FastAPI app has an intentional KeyError bug:
-            
+
             ```python
             user_config = {
                 "user_id": 12345,
                 # Missing: "api_key"
             }
-            
+
             api_key = user_config["api_key"]  # KeyError!
             ```
-            
+
             The self-healing agent will:
             1. Detect this error in logs
             2. Analyze the stack trace
@@ -420,7 +419,7 @@ def main():
             4. Validate the fix
             5. Create a PR with the solution
             """)
-        
+
         with st.expander("📊 LangSmith Observability"):
             st.markdown("""
             LangSmith provides:
@@ -429,7 +428,7 @@ def main():
             - Tool usage tracking
             - Performance metrics
             - Error debugging
-            
+
             **This is essential for interviews!** You can show recruiters exactly how
             your agent thinks, loops, and corrects itself.
             """)

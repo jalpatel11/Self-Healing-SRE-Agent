@@ -1,0 +1,6 @@
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[lint.isort]
+known-first-party = ["config", "state", "agents", "tools", "graph"]

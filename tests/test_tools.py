@@ -5,7 +5,6 @@ tests run without needing a live LLM or env vars.
 """
 import ast
 
-
 # ── Replicate validator logic for isolated testing ─────────────────────────
 
 def _validate(code: str, original_code: str = "") -> dict:

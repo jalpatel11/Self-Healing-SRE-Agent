@@ -15,13 +15,12 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from fastapi import FastAPI, Request, Header
+import uvicorn
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import uvicorn
 
 from config import settings
-
 
 # Configure rotating log handler (10 MB per file, keep 5 backups)
 os.makedirs(
@@ -68,7 +67,7 @@ async def log_requests(request: Request, call_next):
     """Middleware to log all incoming requests."""
     logger.info(f"Incoming request: {request.method} {request.url.path}")
     logger.info(f"Headers: {dict(request.headers)}")
-    
+
     try:
         response = await call_next(request)
         logger.info(f"Response status: {response.status_code}")
@@ -95,7 +94,7 @@ async def root():
 async def health_check():
     """
     Health check endpoint.
-    
+
     Returns service health status. Always returns healthy unless
     the service is completely down.
     """
@@ -114,25 +113,25 @@ async def get_data(
 ):
     """
     Main data endpoint with intentional bug.
-    
+
     This endpoint demonstrates a common programming error: accessing a dictionary
     key that doesn't exist without proper error handling.
-    
+
     BUG: When X-Trigger-Bug header is "true", attempts to access user_config["api_key"]
          which doesn't exist, causing a KeyError crash.
-    
+
     Args:
         request: The FastAPI request object
         x_trigger_bug: Optional header to trigger the bug (default: None)
-    
+
     Returns:
         DataResponse with user data and message
-    
+
     Raises:
         KeyError: When the bug is triggered and user_config["api_key"] is accessed
     """
     logger.info(f"Data endpoint called with X-Trigger-Bug={x_trigger_bug}")
-    
+
     # Simulate user configuration data
     user_config = {
         "user_id": 12345,
@@ -143,7 +142,7 @@ async def get_data(
         }
         # Note: "api_key" is intentionally missing!
     }
-    
+
     # THE BUG: This code assumes api_key exists, but it doesn't!
     # When the header is set, this will crash with KeyError
     if x_trigger_bug and x_trigger_bug.lower() == "true":
@@ -151,7 +150,7 @@ async def get_data(
         # This line will crash because "api_key" doesn't exist in user_config
         api_key = user_config["api_key"]  # KeyError!
         logger.info(f"Using API key: {api_key}")
-    
+
     # Normal response when bug is not triggered
     return DataResponse(
         data=user_config,
@@ -164,7 +163,7 @@ async def get_data(
 async def keyerror_exception_handler(request: Request, exc: KeyError):
     """
     Custom exception handler for KeyError.
-    
+
     This logs the error in detail and returns a 500 error response.
     The self-healing agent will detect this error in the logs.
     """
@@ -176,13 +175,13 @@ async def keyerror_exception_handler(request: Request, exc: KeyError):
         "method": request.method,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
-    
+
     logger.error(
         f"CRITICAL ERROR - KeyError in {request.url.path}: "
         f"Missing key {exc}. This error should be fixed!",
         exc_info=True
     )
-    
+
     return JSONResponse(
         status_code=500,
         content=error_details
@@ -196,7 +195,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         f"Unexpected error in {request.url.path}: {str(exc)}",
         exc_info=True
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={

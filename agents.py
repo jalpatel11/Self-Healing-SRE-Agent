@@ -10,12 +10,12 @@ This module contains the core agent logic:
 
 from datetime import datetime, timezone
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
 from state import SREAgentState
-from tools import fetch_logs, run_tests, open_github_pr
+from tools import fetch_logs, open_github_pr, run_tests
 
 
 def get_llm(temperature: float = 0):
@@ -50,18 +50,18 @@ def invoke_with_retry(llm, messages):
 def investigator_agent(state: SREAgentState) -> dict:
     """
     Investigator Agent: Analyzes logs to identify the root cause of errors.
-    
+
     This agent:
     1. Calls the fetch_logs tool to retrieve application logs
     2. Analyzes the logs using LLM reasoning
     3. Identifies the root cause and sets root_cause_identified=True
     4. Prepares a detailed analysis for the Mechanic Agent
-    
+
     The agent can be called multiple times if initial analysis is insufficient.
-    
+
     Args:
         state: Current agent state
-    
+
     Returns:
         Partial state update with analysis results
     """
@@ -70,10 +70,10 @@ def investigator_agent(state: SREAgentState) -> dict:
     # Check iteration count
     iteration = state.get("iteration_count", 0) + 1
     print(f"   Iteration: {iteration}/{settings.max_iterations}")
-    
+
     llm = get_llm()
     llm_with_tools = llm.bind_tools([fetch_logs])
-    
+
     # Build the investigation prompt
     system_prompt = """You are an expert Site Reliability Engineer specializing in debugging production issues.
 
@@ -92,22 +92,22 @@ Be thorough but focused. Your analysis will be used by another agent to generate
     validation_errors = state.get("validation_errors", [])
     if validation_errors:
         additional_context = f"""
-        
+
 IMPORTANT: A previous fix attempt failed with these test errors:
 {chr(10).join(f"- {error}" for error in validation_errors)}
 
 Please reconsider the root cause analysis with this feedback in mind. The previous fix didn't work correctly."""
         system_prompt += additional_context
-    
+
     messages = [
         SystemMessage(content=system_prompt),
         *state["messages"]
     ]
-    
+
     # First LLM call: Agent decides to use fetch_logs tool
     print("   Fetching logs...")
     response = llm_with_tools.invoke(messages)
-    
+
     # Check if the model wants to use tools
     if response.tool_calls:
         # Execute the tool calls
@@ -117,10 +117,10 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
                 args = tool_call.get("args", {})
                 logs = fetch_logs.invoke(args)
                 tool_results.append(logs)
-        
+
         logs_content = "\n\n".join(tool_results)
         print(f"   Retrieved {len(logs_content)} characters of logs")
-        
+
         # Second LLM call: Analyze the logs
         print("   Analyzing logs with LLM...")
         analysis_messages = [
@@ -129,14 +129,14 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
             response,
             HumanMessage(content=f"Here are the logs:\n\n{logs_content}\n\nNow analyze these logs and identify the root cause.")
         ]
-        
+
         analysis_response = llm.invoke(analysis_messages)
         analysis_text = analysis_response.content
     else:
         # Model responded without using tools (shouldn't happen, but handle it)
         analysis_text = response.content
         logs_content = ""
-    
+
     # Determine if root cause is identified
     # Look for confidence indicators in the response
     root_cause_found = any(
@@ -150,14 +150,14 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
             "the bug is"
         ]
     )
-    
+
     print(f"   Root cause identified: {root_cause_found}")
-    
+
     if root_cause_found:
         print(f"   [SUCCESS] Root cause found: {analysis_text[:100]}...")
     else:
         print("   [WARNING] Root cause unclear, may need another iteration")
-    
+
     return {
         "messages": [AIMessage(content=f"Investigation Result:\n\n{analysis_text}")],
         "error_logs": logs_content if logs_content else state.get("error_logs", ""),
@@ -170,28 +170,28 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
 def mechanic_agent(state: SREAgentState) -> dict:
     """
     Mechanic Agent: Generates code fixes for identified issues.
-    
+
     This agent:
     1. Takes the root cause analysis from the Investigator
     2. Generates a code fix that addresses the issue
     3. Provides the complete fixed code (not just a diff)
     4. Explains what was changed and why
-    
+
     If validation fails, this agent is called again with feedback.
-    
+
     Args:
         state: Current agent state
-    
+
     Returns:
         Partial state update with generated fix code
     """
     print("\n[MECHANIC] Generating code fix...")
-    
+
     llm = get_llm()
-    
+
     root_cause = state.get("root_cause_analysis", "")
     validation_errors = state.get("validation_errors", [])
-    
+
     # Build the fix generation prompt
     system_prompt = """You are an expert Python developer specializing in fixing production bugs.
 
@@ -214,14 +214,14 @@ WARNING: Your previous fix failed validation with these errors:
 {chr(10).join(f"- {error}" for error in validation_errors)}
 
 Please generate a NEW fix that addresses these validation failures."""
-    
+
     # Read the original buggy code
     try:
         with open("app.py", "r") as f:
             original_code = f.read()
     except Exception:
         original_code = "[Could not read original app.py file]"
-    
+
     prompt = f"""Root Cause Analysis:
 {root_cause}
 
@@ -237,20 +237,20 @@ Respond with ONLY the Python code, no explanations before or after."""
         SystemMessage(content=system_prompt),
         HumanMessage(content=prompt)
     ]
-    
+
     print("   Generating fix with LLM...")
     response = llm.invoke(messages)
     fix_code = response.content
-    
+
     # Extract code if wrapped in markdown code blocks
     if "```python" in fix_code:
         fix_code = fix_code.split("```python")[1].split("```")[0].strip()
     elif "```" in fix_code:
         fix_code = fix_code.split("```")[1].split("```")[0].strip()
-    
+
     print(f"   [SUCCESS] Generated fix ({len(fix_code)} characters)")
     print(f"   Preview: {fix_code[:150]}...")
-    
+
     return {
         "messages": [AIMessage(content="I've generated a fix for the issue. The code addresses the root cause by implementing proper error handling.")],
         "fix_code": fix_code,
@@ -262,26 +262,26 @@ Respond with ONLY the Python code, no explanations before or after."""
 def validator_node(state: SREAgentState) -> dict:
     """
     Validator Node: Tests the generated fix and determines next steps.
-    
+
     This node acts like a CI/CD pipeline:
     1. Runs static analysis on the fix code
     2. Simulates pytest execution
     3. Validates that the fix addresses the root cause
     4. Routes back to Investigator if tests fail
     5. Proceeds to PR creation if tests pass
-    
+
     This creates the self-correction loop that makes the agent resilient.
-    
+
     Args:
         state: Current agent state
-    
+
     Returns:
         Partial state update with validation results
     """
     print("\n[VALIDATOR] Testing the generated fix...")
-    
+
     fix_code = state.get("fix_code", "")
-    
+
     if not fix_code:
         print("   [ERROR] No fix code to validate!")
         return {
@@ -289,25 +289,25 @@ def validator_node(state: SREAgentState) -> dict:
             "validation_errors": ["No fix code provided"],
             "messages": [AIMessage(content="Validation failed: No fix code to test")]
         }
-    
+
     # Read original code for comparison
     try:
         with open("app.py", "r") as f:
             original_code = f.read()
     except Exception:
         original_code = ""
-    
+
     # Run the tests
     print("   Running tests (simulated pytest)...")
     test_result = run_tests.invoke({
         "fix_code": fix_code,
         "original_code": original_code
     })
-    
+
     passed = test_result["passed"]
     message = test_result["message"]
     errors = test_result["errors"]
-    
+
     if passed:
         print("   [SUCCESS] All tests passed!")
         print(f"   {message}")
@@ -320,7 +320,7 @@ def validator_node(state: SREAgentState) -> dict:
         print(f"   [ERROR] Tests failed: {message}")
         for error in errors:
             print(f"      - {error}")
-        
+
         return {
             "fix_validated": False,
             "validation_errors": errors,
@@ -331,20 +331,20 @@ def validator_node(state: SREAgentState) -> dict:
 def pr_creator_node(state: SREAgentState) -> dict:
     """
     PR Creator Node: Opens a GitHub Pull Request with the validated fix.
-    
+
     This is the final node in the success path:
     1. Prepares PR title and description
     2. Calls the open_github_pr tool
     3. Updates state with PR status and URL
-    
+
     Args:
         state: Current agent state
-    
+
     Returns:
         Partial state update with PR creation results
     """
     print("\n[PR CREATOR] Opening GitHub Pull Request...")
-    
+
     fix_code = state.get("fix_code", "")
     root_cause = state.get("root_cause_analysis", "Unknown root cause detected")
 
@@ -381,7 +381,7 @@ This PR was created automatically. Please review carefully before merging.
 *Timestamp: {datetime.now(timezone.utc).isoformat()}*
 *Iterations: {state.get("iteration_count", 1)}*
 """
-    
+
     # Call the tool to create PR
     pr_result = open_github_pr.invoke({
         "title": title,
@@ -389,7 +389,7 @@ This PR was created automatically. Please review carefully before merging.
         "fix_code": fix_code,
         "file_path": "app.py"
     })
-    
+
     # Check if PR was created successfully
     if "[SUCCESS]" in pr_result or "PR URL:" in pr_result or "Simulated PR" in pr_result:
         print("   [SUCCESS] Pull Request created successfully!")

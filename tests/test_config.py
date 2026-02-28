@@ -1,5 +1,6 @@
 """Tests for config.py — Pydantic Settings validation."""
 import importlib
+
 import pytest
 
 
