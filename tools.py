@@ -8,7 +8,7 @@ This module defines the tools that agents can use:
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -31,8 +31,9 @@ def fetch_logs(time_range: str = "1h", severity: str = "error") -> str:
     Returns:
         Formatted log entries as a string, or error message if logs unavailable
     """
-    log_file = "app_logs.txt"
-    
+    from config import settings
+    log_file = settings.log_file
+
     if not os.path.exists(log_file):
         return (
             "No logs found. The application may not have been started yet, "
@@ -91,101 +92,85 @@ Total lines returned: {len(recent_lines)}
 
 
 @tool
-def run_tests(fix_code: str, original_code: str) -> dict:
+def run_tests(fix_code: str, original_code: str = "") -> dict:
     """
-    Simulate running pytest on the generated fix code.
-    
-    This performs static analysis to validate the fix:
-    1. Syntax validation using AST parsing
-    2. Basic logic checks (e.g., ensures .get() is used instead of direct dict access)
-    3. Simulates a "test suite" passing or failing
-    
-    In a real implementation, this would:
-    - Write the fix to a temporary file
-    - Run actual pytest tests
-    - Return test results
-    
+    Validate generated fix code using AST analysis.
+
+    Generic validator that works with any Python codebase — not hardcoded
+    to the demo app. Checks:
+    1. Syntax validity (ast.parse)
+    2. All original function signatures are preserved
+    3. No bare 'except:' clauses (common sign of a sloppy fix)
+
     Args:
-        fix_code: The generated fix code
-        original_code: The original buggy code (for comparison)
-    
+        fix_code: The generated/fixed Python code to validate
+        original_code: The original buggy code (for function-signature comparison)
+
     Returns:
         dict with keys:
-            - passed (bool): Whether tests passed
-            - message (str): Success or failure message
-            - errors (list): List of specific test failures
+            - passed (bool): Whether all checks passed
+            - message (str): Human-readable summary
+            - errors (list[str]): Specific issues found
     """
     errors = []
-    
-    # Test 1: Syntax validation
+
+    # ── 1. Syntax check ────────────────────────────────────────────────────
     try:
-        ast.parse(fix_code)
+        tree = ast.parse(fix_code)
     except SyntaxError as e:
-        errors.append(f"Syntax Error: {str(e)}")
         return {
             "passed": False,
             "message": "Fix code has syntax errors",
-            "errors": errors
+            "errors": [f"Syntax error at line {e.lineno}: {e.msg}"],
         }
-    
-    # Test 2: Check if the bug pattern is fixed
-    # The original bug: user_config["api_key"] causes KeyError
-    # The fix should use .get() or try/except
-    
-    bug_pattern = 'user_config["api_key"]'
-    safe_patterns = [
-        'user_config.get("api_key"',
-        'user_config.get(\'api_key\'',
-        'try:',
-        'except KeyError',
-    ]
-    
-    if bug_pattern in fix_code:
-        errors.append(
-            "Test Failed: Direct dictionary access user_config['api_key'] "
-            "is still present. This will cause KeyError! Use .get() method instead."
-        )
-    
-    has_safe_pattern = any(pattern in fix_code for pattern in safe_patterns)
-    
-    if not has_safe_pattern and bug_pattern not in original_code:
-        errors.append(
-            "Test Failed: The fix doesn't use a safe dictionary access pattern. "
-            "Expected .get() method or try/except block."
-        )
-    
-    # Test 3: Ensure the endpoint logic is preserved
-    required_elements = [
-        'def get_data',
-        'x_trigger_bug',
-        'user_config',
-    ]
-    
-    missing_elements = [elem for elem in required_elements if elem not in fix_code]
-    if missing_elements:
-        errors.append(
-            f"Test Failed: Essential code elements missing: {', '.join(missing_elements)}"
-        )
-    
-    # Test 4: Ensure response is still returned
-    if 'return DataResponse' not in fix_code and 'return {' not in fix_code:
-        errors.append(
-            "Test Failed: The function doesn't return a proper response. "
-            "Ensure DataResponse is returned."
-        )
-    
-    # Determine overall result
+
+    # ── 2. Preserve original function signatures ───────────────────────────
+    if original_code:
+        try:
+            orig_tree = ast.parse(original_code)
+            original_funcs = {
+                node.name
+                for node in ast.walk(orig_tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            fixed_funcs = {
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            missing = original_funcs - fixed_funcs
+            if missing:
+                errors.append(
+                    f"Functions removed from original code: {missing}. "
+                    "All original functions must be preserved."
+                )
+                return {
+                    "passed": False,
+                    "message": f"Tests failed: {len(errors)} issue(s) found",
+                    "errors": errors,
+                }
+        except SyntaxError:
+            pass  # original was broken — skip comparison
+
+    # ── 3. No bare except clauses ──────────────────────────────────────────
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler) and node.type is None:
+            errors.append(
+                "Bare 'except:' found — use specific exception types "
+                "(e.g. 'except KeyError:') to avoid masking unrelated errors."
+            )
+
     if errors:
         return {
             "passed": False,
             "message": f"Tests failed: {len(errors)} issue(s) found",
-            "errors": errors
+            "errors": errors,
         }
-    
+
     return {
         "passed": True,
-        "message": "All tests passed! The fix is valid and safe.",
-        "errors": []
+        "message": "All tests passed! The fix is valid.",
+        "errors": [],
     }
 
 
@@ -219,14 +204,11 @@ def open_github_pr(
     Returns:
         PR URL if successful, or error message
     """
-    # Check for GitHub token
-    github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = os.getenv("GITHUB_REPO")
-    
-    if not github_token or github_token == "your_github_personal_access_token":
-        return _simulate_pr_creation(title, body, fix_code, file_path, branch_name)
-    
-    if not github_repo or github_repo == "username/repo-name":
+    from config import settings
+    github_token = settings.github_token
+    github_repo = settings.github_repo
+
+    if not github_token or not github_repo:
         return _simulate_pr_creation(title, body, fix_code, file_path, branch_name)
     
     # Actual GitHub PR creation
@@ -289,10 +271,10 @@ def _simulate_pr_creation(
     This is for demo purposes. In production, you would always have
     proper credentials configured.
     """
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if not branch_name:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         branch_name = f"fix/sre-agent-{timestamp}"
-    
+
     # Save the fix to a local file for inspection
     fix_file = f"generated_fix_{timestamp}.py"
     try:
@@ -301,7 +283,7 @@ def _simulate_pr_creation(
     except Exception:
         pass
     
-    simulated_pr_url = f"https://github.com/your-repo/pull/123"
+    simulated_pr_url = "https://github.com/your-repo/pull/123"
     
     return f"""
 [SIMULATED PR CREATION - Demo Mode]
