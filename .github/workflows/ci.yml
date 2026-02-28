@@ -33,7 +33,9 @@ jobs:
 
     env:
       LLM_PROVIDER: groq
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      # Fallback lets AST-only tests run without a real key in the secret.
+      # Replace with a real key via the GROQ_API_KEY secret for LLM tests.
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'ci-placeholder-key' }}
       GROQ_MODEL: llama-3.1-70b-versatile
       APP_PORT: 8000
       LOG_FILE: /tmp/app_logs.txt
