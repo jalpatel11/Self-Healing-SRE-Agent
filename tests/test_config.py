@@ -81,6 +81,8 @@ def test_defaults(monkeypatch):
         LLM_PROVIDER="groq",
         GROQ_API_KEY="test-key",
         LANGCHAIN_TRACING_V2="false",  # override .env which may have this set
+        LOG_FILE="app_logs.txt",  # override CI env which sets /tmp/app_logs.txt
+        APP_PORT="8000",  # pin to expected default to avoid CI env interference
     )
     assert s.app_port == 8000
     assert s.log_file == "app_logs.txt"
