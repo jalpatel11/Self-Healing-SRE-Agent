@@ -8,44 +8,43 @@ This module contains the core agent logic:
 4. PR Creator Node: Opens GitHub Pull Request with the fix
 """
 
-import os
-from typing import Literal
+from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
+from tenacity import retry, stop_after_attempt, wait_exponential
 
+from config import settings
 from state import SREAgentState
 from tools import fetch_logs, run_tests, open_github_pr
 
 
-# Initialize LLM (will use environment variable to choose)
-def get_llm():
-    """
-    Get the configured LLM based on available API keys.
-    
-    Prefers Claude 3.5 Sonnet for its superior reasoning, but falls back
-    to GPT-4o if Anthropic key is not available.
-    """
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
-    
-    if anthropic_key and anthropic_key != "your_anthropic_api_key_here":
-        return ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
-            temperature=0,
-            max_tokens=4096
+def get_llm(temperature: float = 0):
+    """Return the configured LLM client based on LLM_PROVIDER setting."""
+    if settings.llm_provider == "groq":
+        from langchain_groq import ChatGroq
+        return ChatGroq(
+            api_key=settings.groq_api_key,
+            model=settings.groq_model,
+            temperature=temperature,
         )
-    elif openai_key and openai_key != "your_openai_api_key_here":
-        return ChatOpenAI(
-            model="gpt-4o",
-            temperature=0
+    elif settings.llm_provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            google_api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            temperature=temperature,
         )
-    else:
-        raise ValueError(
-            "No LLM API key configured. Please set OPENAI_API_KEY or "
-            "ANTHROPIC_API_KEY in your .env file."
-        )
+    raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider!r}")
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True,
+)
+def invoke_with_retry(llm, messages):
+    """Invoke the LLM with automatic retry on transient failures."""
+    return llm.invoke(messages)
 
 
 def investigator_agent(state: SREAgentState) -> dict:
@@ -67,10 +66,10 @@ def investigator_agent(state: SREAgentState) -> dict:
         Partial state update with analysis results
     """
     print("\n[INVESTIGATOR]  Starting log analysis...")
-    
+
     # Check iteration count
     iteration = state.get("iteration_count", 0) + 1
-    print(f"   Iteration: {iteration}/3")
+    print(f"   Iteration: {iteration}/{settings.max_iterations}")
     
     llm = get_llm()
     llm_with_tools = llm.bind_tools([fetch_logs])
@@ -157,7 +156,7 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
     if root_cause_found:
         print(f"   [SUCCESS] Root cause found: {analysis_text[:100]}...")
     else:
-        print(f"   [WARNING] Root cause unclear, may need another iteration")
+        print("   [WARNING] Root cause unclear, may need another iteration")
     
     return {
         "messages": [AIMessage(content=f"Investigation Result:\n\n{analysis_text}")],
@@ -253,7 +252,7 @@ Respond with ONLY the Python code, no explanations before or after."""
     print(f"   Preview: {fix_code[:150]}...")
     
     return {
-        "messages": [AIMessage(content=f"I've generated a fix for the issue. The code addresses the root cause by implementing proper error handling.")],
+        "messages": [AIMessage(content="I've generated a fix for the issue. The code addresses the root cause by implementing proper error handling.")],
         "fix_code": fix_code,
         "fix_validated": False,  # Will be set by validator
         "validation_errors": []  # Clear previous errors
@@ -310,7 +309,7 @@ def validator_node(state: SREAgentState) -> dict:
     errors = test_result["errors"]
     
     if passed:
-        print(f"   [SUCCESS] All tests passed!")
+        print("   [SUCCESS] All tests passed!")
         print(f"   {message}")
         return {
             "fix_validated": True,
@@ -325,7 +324,7 @@ def validator_node(state: SREAgentState) -> dict:
         return {
             "fix_validated": False,
             "validation_errors": errors,
-            "messages": [AIMessage(content=f"[VALIDATION FAILED]\n" + "\n".join(errors))]
+            "messages": [AIMessage(content="[VALIDATION FAILED]\n" + "\n".join(errors))]
         }
 
 
@@ -347,34 +346,40 @@ def pr_creator_node(state: SREAgentState) -> dict:
     print("\n[PR CREATOR] Opening GitHub Pull Request...")
     
     fix_code = state.get("fix_code", "")
-    root_cause = state.get("root_cause_analysis", "")
-    
-    # Prepare PR title and body
-    title = "[Automated Fix] Fix KeyError in /api/data endpoint"
-    
+    root_cause = state.get("root_cause_analysis", "Unknown root cause detected")
+
+    # Dynamic title — capped at 72 chars for clean git log display
+    title = f"[Automated Fix] {root_cause[:72]}"
+
+    validation_errors = state.get("validation_errors", [])
+    test_summary = (
+        "All automated tests passed (syntax + function-signature validation)."
+        if not validation_errors
+        else f"Passed after {state.get('iteration_count', 1)} iteration(s)."
+    )
+
     body = f"""## Automated Fix by Self-Healing SRE Agent
 
-This PR was automatically generated by the Self-Healing SRE Agent after detecting and analyzing a production error.
+This PR was automatically generated after detecting and analyzing a production error.
 
 ### Root Cause Analysis
 {root_cause}
 
 ### Changes Made
-- Fixed dictionary access to use safe `.get()` method instead of direct key access
-- Added proper error handling to prevent KeyError crashes
-- Maintained all existing functionality
+The agent generated a fix addressing the root cause above using defensive
+Python patterns (e.g. `.get()` instead of direct dict access, proper
+exception handling).
 
-### Testing
-- All automated tests passed
-- Syntax validation passed
-- Logic validation passed
+### Validation
+{test_summary}
 
-### Request for Review
-Please review this automated fix and merge if appropriate. The agent has validated the fix, but human review is recommended before deployment.
+### ⚠️ Human Review Required
+This PR was created automatically. Please review carefully before merging.
 
 ---
-*Generated by Self-Healing SRE Agent v1.0*
-*Timestamp: {state.get("error_timestamp", "N/A")}*
+*Generated by Self-Healing SRE Agent*
+*Timestamp: {datetime.now(timezone.utc).isoformat()}*
+*Iterations: {state.get("iteration_count", 1)}*
 """
     
     # Call the tool to create PR
