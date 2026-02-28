@@ -1,0 +1,60 @@
+version: '3.9'
+
+services:
+  # ─── FastAPI demo app (the "broken" service) ─────────────────
+  sre-app:
+    build: .
+    image: sre-agent:latest
+    container_name: sre-app
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - sre_logs:/app/logs
+    env_file: .env
+    environment:
+      - LOG_FILE=/app/logs/app_logs.txt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ─── LangGraph SRE agent ─────────────────────────────────────
+  sre-agent:
+    build: .
+    image: sre-agent:latest
+    container_name: sre-agent
+    command: python main.py
+    volumes:
+      - sre_logs:/app/logs
+    env_file: .env
+    environment:
+      - LOG_FILE=/app/logs/app_logs.txt
+    depends_on:
+      sre-app:
+        condition: service_healthy
+    restart: "no"
+
+  # ─── Streamlit web UI ────────────────────────────────────────
+  sre-ui:
+    build: .
+    image: sre-agent:latest
+    container_name: sre-ui
+    command: streamlit run ui.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    ports:
+      - "8501:8501"
+    volumes:
+      - sre_logs:/app/logs
+    env_file: .env
+    environment:
+      - LOG_FILE=/app/logs/app_logs.txt
+    depends_on:
+      - sre-app
+    restart: unless-stopped
+
+volumes:
+  sre_logs:
+    driver: local
