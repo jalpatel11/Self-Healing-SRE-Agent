@@ -1,0 +1,76 @@
+name: Auto-Heal on CI Failure
+
+on:
+  workflow_run:
+    workflows: ["CI/CD"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  auto-heal:
+    # Only run if the triggering workflow failed
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Self-Healing Agent
+        id: heal
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVIDER: groq
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_FAILED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          echo "=== Self-Healing Agent Starting ==="
+          echo "CI Run ID: $CI_RUN_ID"
+          echo "Failed Branch: $CI_FAILED_BRANCH"
+          echo "Repository: $GITHUB_REPO"
+          echo ""
+          
+          python auto_heal_ci.py
+          
+      - name: Report Results
+        if: always()
+        run: |
+          echo "=== Auto-Heal Workflow Complete ==="
+          if [ ${{ steps.heal.outcome }} == 'success' ]; then
+            echo "✓ Self-healing agents successfully executed"
+          else
+            echo "✗ Self-healing agents encountered errors"
+          fi
+
+      - name: Create Issue on Total Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[ALERT] Self-Healing Failed for Run ${context.payload.workflow_run.id}`,
+              body: `The CI workflow failed and the self-healing agent was unable to auto-fix the issue.\n\nFailed Workflow: ${context.payload.workflow_run.html_url}\n\nPlease investigate manually.`,
+              labels: ['sre-agent-failed', 'ci-failure']
+            })

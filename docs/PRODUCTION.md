@@ -1,5 +1,28 @@
 # Production Considerations
 
+## Auto-Healing Trigger from CI Failures
+
+This repository includes a production-style automation path:
+
+- Workflow: `.github/workflows/auto-heal-on-ci-failure.yml`
+- Trigger: failed run of the `CI/CD` workflow (`workflow_run`)
+- Runner: `auto_heal_ci.py`
+
+### Required GitHub setup
+
+1. Add repository secret: `GROQ_API_KEY`
+2. Ensure Actions permissions allow:
+   - `contents: write`
+   - `pull-requests: write`
+
+### What gets enforced automatically
+
+- Investigator and Mechanic must both execute (two-agent collaboration guard)
+- Validator feedback loops to Investigator when fixes fail
+- PR must be created successfully, otherwise the auto-heal job fails
+
+This keeps auto-remediation observable and safe, while still requiring review before merge.
+
 ## Why LangSmith is Non-Negotiable
 
 When interviewing for GenAI roles, saying "I built an agent" isn't enough. You need to prove:

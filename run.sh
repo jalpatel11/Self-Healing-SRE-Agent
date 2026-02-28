@@ -27,6 +27,10 @@ case "$1" in
         echo "📊 Visualizing graph structure..."
         python graph.py
         ;;
+    "auto-heal")
+        echo "🩺 Running CI auto-heal workflow (non-interactive)..."
+        python auto_heal_ci.py
+        ;;
     *)
         echo "Self-Healing SRE Agent - Run Script"
         echo ""
@@ -38,6 +42,7 @@ case "$1" in
         echo "  main   - Run CLI version of the agent"
         echo "  test   - Test the bug trigger"
         echo "  graph  - Visualize the LangGraph structure"
+        echo "  auto-heal - Run CI-style auto-heal workflow"
         echo ""
         echo "Example:"
         echo "  ./run.sh app     # Start the FastAPI app"

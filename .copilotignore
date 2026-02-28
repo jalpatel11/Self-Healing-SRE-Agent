@@ -1,0 +1,17 @@
+# Environment variables - keep secrets out of Copilot context
+.env
+.env.*
+
+# Build artifacts
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+
+# Logs that may contain sensitive data
+*.log
+app_logs.txt
+
+# Checkpoints
+checkpoints/

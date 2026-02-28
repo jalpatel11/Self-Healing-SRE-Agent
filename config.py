@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Groq (free at console.groq.com)
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-70b-versatile"
+    groq_model: str = "llama-3.3-70b-versatile"
 
     # Gemini (free at aistudio.google.com)
     gemini_api_key: str = ""

@@ -76,6 +76,26 @@ Open `http://localhost:8501` and hit "Run Self-Healing Agent" to see it work.
 
 **📖 Detailed setup in [Setup Guide](docs/SETUP.md)**
 
+## Auto-Heal on CI Failure (GitHub Actions)
+
+This repo now supports automatic self-healing when your `CI/CD` workflow fails.
+
+1. Add repository secret:
+  - `GROQ_API_KEY`
+2. Push to `main` (or trigger CI) and let `CI/CD` fail.
+3. Workflow `.github/workflows/auto-heal-on-ci-failure.yml` runs automatically.
+4. It executes `auto_heal_ci.py`, which enforces:
+  - **Two-agent collaboration**: Investigator + Mechanic must both run
+  - **Agent communication**: Investigator handoff is passed to Mechanic
+  - **Self-correction**: Validator feedback loops back on failures
+  - **PR output**: run must end with `pr_status=created`
+
+You can also run the same path locally:
+
+```bash
+./run.sh auto-heal
+```
+
 ## Documentation
 
 | Document | Description |
