@@ -18,6 +18,7 @@ from typing import Literal
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
+from config import settings
 from state import SREAgentState
 from agents import (
     investigator_agent,
@@ -45,14 +46,14 @@ def should_continue_investigation(state: SREAgentState) -> Literal["mechanic", "
     iteration = state.get("iteration_count", 0)
     root_cause_found = state.get("root_cause_identified", False)
     
-    # Safety limit: Max 3 attempts
-    if iteration > 3:
-        print(f"\n[WARNING] Maximum iterations (3) reached. Ending workflow.")
+    # Safety limit: configurable via MAX_ITERATIONS env var
+    if iteration > settings.max_iterations:
+        print(f"\n[WARNING] Maximum iterations ({settings.max_iterations}) reached. Ending workflow.")
         return "end"
     
     # Success: Root cause identified, proceed to fix generation
     if root_cause_found:
-        print(f"\n[SUCCESS] Root cause identified. Moving to Mechanic Agent...")
+        print("\n[SUCCESS] Root cause identified. Moving to Mechanic Agent...")
         return "mechanic"
     
     # Continue investigation
@@ -91,20 +92,20 @@ def should_continue_after_validation(state: SREAgentState) -> Literal["pr_creato
     
     # Success case: Tests passed!
     if fix_validated:
-        print(f"\n[SUCCESS] Fix validated successfully! Moving to PR creation...")
+        print("\n[SUCCESS] Fix validated successfully! Moving to PR creation...")
         return "pr_creator"
     
-    # Safety limit: Max 3 total attempts (Investigator + Mechanic + Validator cycles)
-    if iteration >= 3:
-        print(f"\n[ERROR] Maximum attempts (3) reached. Validation still failing.")
+    # Safety limit: configurable via MAX_ITERATIONS env var
+    if iteration >= settings.max_iterations:
+        print(f"\n[ERROR] Maximum attempts ({settings.max_iterations}) reached. Validation still failing.")
         print(f"   Last errors: {validation_errors}")
-        print(f"   Ending workflow without creating PR.")
+        print("   Ending workflow without creating PR.")
         return "end"
     
     # Self-correction: Tests failed, loop back to Investigator
-    print(f"\n[SELF-CORRECTION LOOP] Tests failed. Routing back to Investigator...")
+    print("\n[SELF-CORRECTION LOOP] Tests failed. Routing back to Investigator...")
     print(f"   Attempt: {iteration}/3")
-    print(f"   Validation errors will be fed back for reconsideration.")
+    print("   Validation errors will be fed back for reconsideration.")
     return "investigator"
 
 
