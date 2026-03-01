@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 
 import httpx
 import streamlit as st
-from dotenv import load_dotenv
 
 # Import our modules
 from config import settings
+from dotenv import load_dotenv
 from graph import sre_graph
 from state import create_initial_state
 

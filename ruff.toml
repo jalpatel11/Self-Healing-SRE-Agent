@@ -1,6 +1,8 @@
+exclude = ["demo/", ".venv/", "venv/"]
+
 [lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
 [lint.isort]
-known-first-party = ["config", "state", "agents", "tools", "graph"]
+known-first-party = ["sre_agent"]

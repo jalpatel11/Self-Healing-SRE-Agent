@@ -201,6 +201,7 @@ def test_fetch_logs_falls_back_to_local_file(monkeypatch, tmp_path):
 
     # Reload config so LOG_FILE env var is picked up
     import importlib
+
     import sre_agent.config
     importlib.reload(sre_agent.config)
 

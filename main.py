@@ -11,9 +11,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Optional
 
-from dotenv import load_dotenv
-
 from config import settings
+from dotenv import load_dotenv
 from graph import sre_graph
 from state import create_initial_state
 
