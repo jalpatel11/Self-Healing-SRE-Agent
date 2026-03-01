@@ -18,9 +18,9 @@ from typing import Literal
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from agents import investigator_agent, mechanic_agent, pr_creator_node, validator_node
-from config import settings
-from state import SREAgentState
+from sre_agent.agents import investigator_agent, mechanic_agent, pr_creator_node, validator_node
+from sre_agent.config import settings
+from sre_agent.state import SREAgentState
 
 
 def should_continue_investigation(state: SREAgentState) -> Literal["mechanic", "investigator", "end"]:

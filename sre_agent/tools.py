@@ -31,7 +31,7 @@ def fetch_logs(time_range: str = "1h", severity: str = "error") -> str:
     Returns:
         Formatted log entries as a string, or error message if logs unavailable
     """
-    from config import settings
+    from sre_agent.config import settings
     log_file = settings.log_file
 
     if not os.path.exists(log_file):
@@ -204,7 +204,7 @@ def open_github_pr(
     Returns:
         PR URL if successful, or error message
     """
-    from config import settings
+    from sre_agent.config import settings
     github_token = settings.github_token
     github_repo = settings.github_repo
 
