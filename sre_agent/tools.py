@@ -2,9 +2,9 @@
 Tools for the Self-Healing SRE Agent.
 
 This module defines the tools that agents can use:
-- fetch_logs: Retrieve application logs for analysis
+- fetch_logs: Retrieve CI or application logs for analysis
+- run_tests: Validate generated fix code via AST analysis
 - open_github_pr: Create a GitHub Pull Request with a fix
-- run_tests: Simulate running pytest on the generated fix
 """
 
 import ast
@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from github import Github, GithubException
 from langchain_core.tools import tool
 
@@ -19,21 +20,94 @@ from langchain_core.tools import tool
 @tool
 def fetch_logs(time_range: str = "1h", severity: str = "error") -> str:
     """
-    Fetch application logs from the monitoring system.
+    Fetch application logs for investigation.
 
-    In this demo, reads from app_logs.txt file. In production, this would
-    query systems like Prometheus, Loki, CloudWatch, or Datadog.
+    Behaviour (in priority order):
+    1. If GITHUB_RUN_ID + GITHUB_TOKEN are set -> fetch the failing CI job's
+       logs via the GitHub Actions API (works in any repo's CI pipeline).
+    2. Otherwise -> read from the local log file configured by LOG_FILE
+       (demo / local development mode).
 
     Args:
-        time_range: Time range for logs (e.g., "1h", "30m", "1d")
-        severity: Log severity filter ("error", "warning", "info", "all")
+        time_range: Ignored for GitHub API logs; used for local file filtering.
+        severity:   Ignored for GitHub API logs; used for local file filtering.
 
     Returns:
-        Formatted log entries as a string, or error message if logs unavailable
+        Log text as a string, or an error message if logs are unavailable.
     """
     from sre_agent.config import settings
-    log_file = settings.log_file
 
+    run_id = os.getenv("GITHUB_RUN_ID", "").strip()
+    github_token = os.getenv("GITHUB_TOKEN", settings.github_token or "").strip()
+    repo = os.getenv("GITHUB_REPOSITORY", settings.github_repo or "").strip()
+
+    # ── 1. GitHub Actions API path ──────────────────────────────────────────
+    if run_id and github_token and repo:
+        return _fetch_github_actions_logs(run_id, repo, github_token)
+
+    # ── 2. Local log file (demo / dev mode) ────────────────────────────────
+    return _fetch_local_logs(settings.log_file, time_range, severity)
+
+
+def _fetch_github_actions_logs(run_id: str, repo: str, token: str) -> str:
+    """Download logs for failed jobs in a GitHub Actions run via the API."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    base = "https://api.github.com"
+
+    try:
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
+            # Get all jobs for this run
+            jobs_resp = client.get(f"{base}/repos/{repo}/actions/runs/{run_id}/jobs")
+            jobs_resp.raise_for_status()
+            jobs = jobs_resp.json().get("jobs", [])
+
+            # Find failed jobs
+            failed_jobs = [j for j in jobs if j.get("conclusion") == "failure"]
+            if not failed_jobs:
+                return (
+                    f"=== GitHub Actions Run {run_id} ===\n"
+                    "No failed jobs found. All jobs may have passed or been skipped.\n"
+                )
+
+            log_sections: list[str] = []
+            for job in failed_jobs[:3]:  # cap at 3 failed jobs to stay within context
+                job_id = job["id"]
+                job_name = job.get("name", "unknown")
+
+                logs_resp = client.get(
+                    f"{base}/repos/{repo}/actions/jobs/{job_id}/logs"
+                )
+                if logs_resp.status_code == 200:
+                    log_sections.append(
+                        f"=== Failed Job: {job_name} (ID: {job_id}) ===\n"
+                        f"{logs_resp.text}\n"
+                    )
+                else:
+                    log_sections.append(
+                        f"=== Failed Job: {job_name} (ID: {job_id}) ===\n"
+                        f"Could not retrieve logs (HTTP {logs_resp.status_code}).\n"
+                    )
+
+            combined = "\n".join(log_sections)
+            return (
+                f"=== GitHub Actions CI Logs (Run {run_id}, Repo: {repo}) ===\n\n"
+                f"{combined}\n"
+                f"=== End of CI Logs ===\n"
+                f"Total failed jobs: {len(failed_jobs)}\n"
+            )
+
+    except httpx.HTTPError as exc:
+        return f"[ERROR] Failed to fetch GitHub Actions logs: {exc}"
+    except Exception as exc:
+        return f"[ERROR] Unexpected error fetching CI logs: {exc}"
+
+
+def _fetch_local_logs(log_file: str, time_range: str, severity: str) -> str:
+    """Read logs from a local file (demo / development mode)."""
     if not os.path.exists(log_file):
         return (
             "No logs found. The application may not have been started yet, "
@@ -42,53 +116,36 @@ def fetch_logs(time_range: str = "1h", severity: str = "error") -> str:
         )
 
     try:
-        with open(log_file, "r") as f:
+        with open(log_file) as f:
             log_lines = f.readlines()
 
         if not log_lines:
             return "Log file is empty. No errors have been recorded yet."
 
-        # Filter by severity if not "all"
         if severity.lower() != "all":
-            filtered_lines = [
+            filtered = [
                 line for line in log_lines
                 if severity.upper() in line or "CRITICAL" in line
             ]
         else:
-            filtered_lines = log_lines
+            filtered = log_lines
 
-        # Parse time_range (simple implementation)
-        # In production, you'd parse timestamps and filter by actual time
-        # For now, just return last N lines based on time_range
-        line_limits = {
-            "5m": 10,
-            "15m": 30,
-            "30m": 50,
-            "1h": 100,
-            "6h": 300,
-            "1d": 500,
-        }
+        limits = {"5m": 10, "15m": 30, "30m": 50, "1h": 100, "6h": 300, "1d": 500}
+        max_lines = limits.get(time_range, 100)
+        recent = filtered[-max_lines:] if len(filtered) > max_lines else filtered
 
-        max_lines = line_limits.get(time_range, 100)
-        recent_lines = filtered_lines[-max_lines:] if len(filtered_lines) > max_lines else filtered_lines
-
-        if not recent_lines:
+        if not recent:
             return f"No logs found with severity '{severity}' in the last {time_range}."
 
-        log_output = "".join(recent_lines)
+        return (
+            f"\n=== Application Logs (Last {time_range}, Severity: {severity}) ===\n\n"
+            f"{''.join(recent)}\n\n"
+            f"=== End of Logs ===\n\n"
+            f"Total lines returned: {len(recent)}\n"
+        )
 
-        return f"""
-=== Application Logs (Last {time_range}, Severity: {severity}) ===
-
-{log_output}
-
-=== End of Logs ===
-
-Total lines returned: {len(recent_lines)}
-"""
-
-    except Exception as e:
-        return f"Error reading logs: {str(e)}"
+    except Exception as exc:
+        return f"Error reading logs: {exc}"
 
 
 @tool
@@ -179,32 +236,27 @@ def open_github_pr(
     title: str,
     body: str,
     fix_code: str,
-    file_path: str = "app.py",
-    branch_name: Optional[str] = None
+    file_path: str = "main.py",
+    branch_name: Optional[str] = None,
 ) -> str:
     """
     Create a GitHub Pull Request with the proposed fix.
 
-    This simulates PR creation. In a real implementation with proper credentials:
-    1. Creates a new branch from main
-    2. Commits the fix
-    3. Opens a PR
-    4. Returns the PR URL
-
-    For this demo (without actual GitHub credentials), it returns a
-    simulated PR response.
-
     Args:
-        title: PR title (e.g., "Fix: Handle missing api_key in user_config")
-        body: PR description with root cause analysis
-        fix_code: The complete fixed code
-        file_path: Path to the file being fixed (default: "app.py")
-        branch_name: Branch name for the PR (auto-generated if None)
+        title:       PR title summarising the fix.
+        body:        PR description with root cause and fix explanation.
+        fix_code:    Complete fixed file content (not a diff).
+        file_path:   Repo-relative path of the file being fixed.
+                     The Mechanic agent MUST identify this from the CI logs
+                     (e.g. "src/auth.py", "utils/db.py"). Defaults to
+                     "main.py" as a safe fallback only.
+        branch_name: Branch for the PR (auto-generated from timestamp if None).
 
     Returns:
-        PR URL if successful, or error message
+        PR URL string if successful, or error/simulation message.
     """
     from sre_agent.config import settings
+
     github_token = settings.github_token
     github_repo = settings.github_repo
 
@@ -216,46 +268,43 @@ def open_github_pr(
         g = Github(github_token)
         repo = g.get_repo(github_repo)
 
-        # Generate branch name if not provided
         if not branch_name:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             branch_name = f"fix/sre-agent-{timestamp}"
 
-        # Get the default branch
         default_branch = repo.default_branch
         source = repo.get_branch(default_branch)
 
-        # Create new branch
         repo.create_git_ref(
             ref=f"refs/heads/{branch_name}",
-            sha=source.commit.sha
+            sha=source.commit.sha,
         )
 
-        # Get the file and update it
         file_content = repo.get_contents(file_path, ref=default_branch)
-
         repo.update_file(
             path=file_path,
             message=f"Fix: {title}",
             content=fix_code,
             sha=file_content.sha,
-            branch=branch_name
+            branch=branch_name,
         )
 
-        # Create pull request
         pr = repo.create_pull(
             title=title,
             body=body,
             head=branch_name,
-            base=default_branch
+            base=default_branch,
         )
 
-        return f"[SUCCESS] Pull Request created successfully!\n\nPR URL: {pr.html_url}\nPR Number: #{pr.number}"
+        return (
+            f"[SUCCESS] Pull Request created successfully!\n\n"
+            f"PR URL: {pr.html_url}\nPR Number: #{pr.number}"
+        )
 
     except GithubException as e:
-        return f"[ERROR] GitHub API Error: {str(e)}"
+        return f"[ERROR] GitHub API Error: {e!s}"
     except Exception as e:
-        return f"[ERROR] Error creating PR: {str(e)}"
+        return f"[ERROR] Error creating PR: {e!s}"
 
 
 def _simulate_pr_creation(
@@ -263,19 +312,13 @@ def _simulate_pr_creation(
     body: str,
     fix_code: str,
     file_path: str,
-    branch_name: Optional[str]
+    branch_name: Optional[str],
 ) -> str:
-    """
-    Simulate PR creation when GitHub credentials are not configured.
-
-    This is for demo purposes. In production, you would always have
-    proper credentials configured.
-    """
+    """Simulate PR creation when GitHub credentials are not configured."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if not branch_name:
         branch_name = f"fix/sre-agent-{timestamp}"
 
-    # Save the fix to a local file for inspection
     fix_file = f"generated_fix_{timestamp}.py"
     try:
         with open(fix_file, "w") as f:
@@ -283,25 +326,16 @@ def _simulate_pr_creation(
     except Exception:
         pass
 
-    simulated_pr_url = "https://github.com/your-repo/pull/123"
-
-    return f"""
-[SIMULATED PR CREATION - Demo Mode]
-
-[INFO] Pull Request would be created with:
-
-Title: {title}
-Branch: {branch_name}
-File: {file_path}
-
-Body:
-{body}
-
-Fix code has been saved to: {fix_file}
-
-To enable real PR creation:
-1. Set GITHUB_TOKEN in .env
-2. Set GITHUB_REPO in .env (format: username/repo-name)
-
-Simulated PR URL: {simulated_pr_url}
-"""
+    return (
+        f"\n[SIMULATED PR CREATION - Demo Mode]\n\n"
+        f"[INFO] Pull Request would be created with:\n\n"
+        f"Title: {title}\n"
+        f"Branch: {branch_name}\n"
+        f"File: {file_path}\n\n"
+        f"Body:\n{body}\n\n"
+        f"Fix code has been saved to: {fix_file}\n\n"
+        f"To enable real PR creation:\n"
+        f"1. Set GITHUB_TOKEN in .env\n"
+        f"2. Set GITHUB_REPO in .env (format: username/repo-name)\n\n"
+        f"Simulated PR URL: https://github.com/your-repo/pull/123\n"
+    )
