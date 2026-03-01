@@ -1,20 +1,20 @@
-# ============================================================
-# Stage 1: Build — install Python dependencies
-# ============================================================
+# ── Stage 1: Build ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+# Copy package definition and source
+COPY pyproject.toml README.md LICENSE ./
+COPY sre_agent/ ./sre_agent/
 
-# ============================================================
-# Stage 2: Runtime — lean production image
-# ============================================================
+# Install package + runtime deps into user site-packages for slim-stage copy
+RUN pip install --user --no-cache-dir .
+
+# ── Stage 2: Runtime ───────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
 WORKDIR /app
@@ -22,10 +22,10 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
 
-# Copy application source (excludes what's in .dockerignore)
-COPY . .
+# Copy package source (required for import resolution)
+COPY sre_agent/ ./sre_agent/
+COPY pyproject.toml README.md LICENSE ./
 
-# Create logs directory
 RUN mkdir -p /app/logs
 
 ENV PATH=/root/.local/bin:$PATH \
@@ -33,7 +33,5 @@ ENV PATH=/root/.local/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     LOG_FILE=/app/logs/app_logs.txt
 
-EXPOSE 8000
-
-# Default: run the FastAPI demo app (overridden in docker-compose for other services)
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default: run the self-healing CLI
+CMD ["sre-agent", "heal"]
