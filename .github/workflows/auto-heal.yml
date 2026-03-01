@@ -1,20 +1,37 @@
 name: Auto-Heal on CI Failure
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Drop this file into any Python repo's .github/workflows/ directory.
+#
+# Prerequisites (add these secrets in your repo → Settings → Secrets):
+#   GROQ_API_KEY   — free key from console.groq.com
+#   GH_TOKEN       — GitHub PAT with `repo` scope (for opening PRs)
+#
+# Configure: update the `workflows:` list below to match YOUR CI workflow names.
+# ──────────────────────────────────────────────────────────────────────────────
+
 on:
   workflow_run:
-    workflows: ["CI/CD"]
+    # ← Change these to match YOUR CI workflow name(s)
+    workflows:
+      - "CI"
+      - "CI/CD"
+      - "Tests"
+      - "Build"
+      - "test"
+      - "build"
     types: [completed]
-    branches: [main]
 
 jobs:
   auto-heal:
-    # Only run if the triggering workflow failed
+    # Only run when the watched CI workflow actually failed
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
+
     permissions:
-      contents: write
-      pull-requests: write
-      actions: read
+      contents: write        # push fix branch
+      pull-requests: write   # open PR
+      actions: read          # read failed run logs
 
     steps:
       - name: Checkout repository
@@ -25,43 +42,52 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Install self-healing-sre-agent
+        run: pip install self-healing-sre-agent
 
       - name: Run Self-Healing Agent
         id: heal
         env:
+          # ── LLM (pick one, or set both for automatic fallback) ──────────────
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          LLM_PROVIDER: groq
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
-          CI_RUN_ID: ${{ github.event.workflow_run.id }}
-          CI_FAILED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'groq' }}
+
+          # ── GitHub ─────────────────────────────────────────────────────────
+          # GH_TOKEN needs repo scope to open PRs across branches
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+          # ── Pass the failed run ID so the agent can fetch its logs ─────────
+          GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+
+          # ── Optional tuning ────────────────────────────────────────────────
+          MAX_ITERATIONS: ${{ vars.MAX_ITERATIONS || '3' }}
+
         run: |
-          echo "=== Self-Healing Agent Starting ==="
-          echo "CI Run ID: $CI_RUN_ID"
-          echo "Failed Branch: $CI_FAILED_BRANCH"
-          echo "Repository: $GITHUB_REPO"
+          echo "=== Self-Healing SRE Agent ==="
+          echo "Repo:       $GITHUB_REPOSITORY"
+          echo "Failed run: $GITHUB_RUN_ID"
+          echo "Branch:     ${{ github.event.workflow_run.head_branch }}"
           echo ""
-          
-          python auto_heal_ci.py
-          
+          sre-agent heal \
+            --run-id "$GITHUB_RUN_ID" \
+            --repo   "$GITHUB_REPOSITORY"
+
       - name: Report Results
         if: always()
         run: |
-          echo "=== Auto-Heal Workflow Complete ==="
-          if [ ${{ steps.heal.outcome }} == 'success' ]; then
-            echo "✓ Self-healing agents successfully executed"
+          echo "=== Auto-Heal Complete ==="
+          if [ "${{ steps.heal.outcome }}" = "success" ]; then
+            echo "✓ Agent finished — check your repo for a new PR"
           else
-            echo "✗ Self-healing agents encountered errors"
+            echo "✗ Agent encountered an error (see logs above)"
           fi
 
-      - name: Create Issue on Total Failure
+      - name: Open issue if agent itself fails
         if: failure()
         uses: actions/github-script@v7
         with:
@@ -70,7 +96,16 @@ jobs:
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[ALERT] Self-Healing Failed for Run ${context.payload.workflow_run.id}`,
-              body: `The CI workflow failed and the self-healing agent was unable to auto-fix the issue.\n\nFailed Workflow: ${context.payload.workflow_run.html_url}\n\nPlease investigate manually.`,
-              labels: ['sre-agent-failed', 'ci-failure']
+              title: `[SRE Agent] Could not auto-fix run ${{ github.event.workflow_run.id }}`,
+              body: [
+                '## Self-Healing Agent Failed',
+                '',
+                `The CI workflow failed and the self-healing agent was unable to produce a fix.`,
+                '',
+                `**Failed workflow:** ${{ github.event.workflow_run.html_url }}`,
+                `**Agent run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                '',
+                'Please investigate manually.',
+              ].join('\n'),
+              labels: ['sre-agent-failed', 'needs-human'],
             })
