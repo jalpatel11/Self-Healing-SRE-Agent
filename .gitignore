@@ -33,3 +33,6 @@ htmlcov/
 
 # LangGraph checkpoints
 checkpoints/
+
+# Design & implementation plans
+docs/plans/
