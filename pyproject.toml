@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-healing-sre-agent"
+version = "1.0.0"
+description = "AI-powered autonomous incident response: detects CI failures, generates fixes, and opens PRs automatically."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["sre", "devops", "ai", "langchain", "langgraph", "self-healing", "github-actions"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.6",
+    "langgraph==0.2.28",
+    "langchain>=0.3.1,<0.4",
+    "langchain-groq>=0.2.1",
+    "langchain-google-genai>=2.0.4",
+    "pydantic>=2.9.2",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.1",
+    "httpx>=0.27.2",
+    "typing-extensions>=4.12.2",
+    "tenacity>=8.1.0,!=8.4.0",
+    "PyGithub>=2.4.0",
+    "python-json-logger>=2.0.7",
+    "streamlit>=1.39.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff==0.7.0",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+sre-agent = "sre_agent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jalpatel11/Self-Healing-SRE-Agent"
+Repository = "https://github.com/jalpatel11/Self-Healing-SRE-Agent"
+Issues = "https://github.com/jalpatel11/Self-Healing-SRE-Agent/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sre_agent*"]
