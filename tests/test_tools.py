@@ -136,6 +136,21 @@ def test_no_original_skips_function_check():
 
 # ── fetch_logs GitHub API tests ─────────────────────────────────────────────
 
+def test_open_github_pr_has_no_hardcoded_file_path():
+    """open_github_pr must not default file_path to 'app.py'."""
+    import inspect
+
+    from sre_agent.tools import open_github_pr
+
+    sig = inspect.signature(open_github_pr.func)
+    param = sig.parameters.get("file_path")
+    assert param is not None, "file_path parameter must exist"
+    assert param.default != "app.py", (
+        "file_path must not default to 'app.py' — "
+        "the agent should determine the correct file from log analysis"
+    )
+
+
 def test_fetch_logs_uses_github_api_when_env_vars_set(monkeypatch):
     """When GITHUB_RUN_ID + GITHUB_TOKEN are set, fetch_logs calls GitHub API."""
     monkeypatch.setenv("GITHUB_RUN_ID", "999")

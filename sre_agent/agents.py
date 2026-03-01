@@ -8,6 +8,7 @@ This module contains the core agent logic:
 4. PR Creator Node: Opens GitHub Pull Request with the fix
 """
 
+import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -84,7 +85,12 @@ Steps:
 2. Carefully analyze the stack traces, error messages, and context
 3. Identify the specific line of code causing the issue
 4. Determine the root cause (e.g., missing dictionary key, null pointer, type mismatch)
-5. Provide a clear, concise explanation of what went wrong and why
+5. Identify the exact repository-relative file path that needs to be fixed (e.g. "src/api/routes.py")
+6. Provide a clear, concise explanation of what went wrong and why
+
+IMPORTANT: End your analysis with a line in this exact format:
+FILE_TO_FIX: <repo-relative-path>
+Example: FILE_TO_FIX: src/utils/db.py
 
 Be thorough but focused. Your analysis will be used by another agent to generate a fix."""
 
@@ -151,7 +157,12 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
         ]
     )
 
+    # Extract the file path from the analysis (FILE_TO_FIX: <path>)
+    file_match = re.search(r"FILE_TO_FIX:\s*(\S+)", analysis_text)
+    target_file = file_match.group(1) if file_match else state.get("target_file", "")
+
     print(f"   Root cause identified: {root_cause_found}")
+    print(f"   Target file: {target_file or '(unknown — will try to detect from context)'}")
 
     if root_cause_found:
         print(f"   [SUCCESS] Root cause found: {analysis_text[:100]}...")
@@ -163,7 +174,8 @@ Please reconsider the root cause analysis with this feedback in mind. The previo
         "error_logs": logs_content if logs_content else state.get("error_logs", ""),
         "root_cause_identified": root_cause_found,
         "root_cause_analysis": analysis_text,
-        "iteration_count": iteration
+        "target_file": target_file,
+        "iteration_count": iteration,
     }
 
 
@@ -192,20 +204,28 @@ def mechanic_agent(state: SREAgentState) -> dict:
     root_cause = state.get("root_cause_analysis", "")
     validation_errors = state.get("validation_errors", [])
 
+    target_file = state.get("target_file", "")
+
     # Build the fix generation prompt
     system_prompt = """You are an expert Python developer specializing in fixing production bugs.
 
 Your task is to generate a corrected version of the buggy code based on the root cause analysis.
 
 Requirements:
-1. Provide the COMPLETE fixed code for the app.py file, not just a snippet
+1. Provide the COMPLETE fixed code for the affected file — not just a snippet or diff
 2. Fix the specific issue identified in the root cause analysis
 3. Use defensive programming practices (e.g., .get() instead of direct dict access)
-4. Preserve all other functionality
+4. Preserve ALL original functions, classes, and their signatures
 5. Ensure the code is clean, readable, and follows Python best practices
-6. Add comments explaining the fix
+6. Add a brief comment explaining the fix
 
-The response should be the FULL corrected code that can replace the current app.py file."""
+IMPORTANT — file path:
+You MUST identify the exact repository-relative path of the file being fixed
+(e.g. "src/api/routes.py", "utils/db.py"). Read the error traceback to find it.
+The Investigator's analysis should include a FILE_TO_FIX line — use that path.
+Do NOT assume the file is "app.py".
+
+The response should be the FULL corrected code that can replace the buggy file."""
 
     if validation_errors:
         system_prompt += f"""
@@ -215,22 +235,30 @@ WARNING: Your previous fix failed validation with these errors:
 
 Please generate a NEW fix that addresses these validation failures."""
 
-    # Read the original buggy code
-    try:
-        with open("app.py", "r") as f:
-            original_code = f.read()
-    except Exception:
-        original_code = "[Could not read original app.py file]"
+    # Attempt to read the original buggy file for context
+    original_code = ""
+    if target_file:
+        try:
+            with open(target_file) as f:
+                original_code = f.read()
+        except OSError:
+            original_code = f"[Could not read {target_file}]"
+
+    file_label = target_file or "the affected file (check traceback for exact path)"
+    original_block = (
+        f"```python\n{original_code}\n```" if original_code
+        else "[Original code not available — generate fix based on root cause analysis alone]"
+    )
 
     prompt = f"""Root Cause Analysis:
 {root_cause}
 
-Original Buggy Code:
-```python
-{original_code}
-```
+File to fix: {file_label}
 
-Please provide the COMPLETE fixed version of app.py that solves this issue.
+Original Buggy Code:
+{original_block}
+
+Provide the COMPLETE fixed version of {file_label}.
 Respond with ONLY the Python code, no explanations before or after."""
 
     messages = [
@@ -290,12 +318,15 @@ def validator_node(state: SREAgentState) -> dict:
             "messages": [AIMessage(content="Validation failed: No fix code to test")]
         }
 
-    # Read original code for comparison
-    try:
-        with open("app.py", "r") as f:
-            original_code = f.read()
-    except Exception:
-        original_code = ""
+    # Read original code for comparison (use target_file from state)
+    target_file = state.get("target_file", "")
+    original_code = ""
+    if target_file:
+        try:
+            with open(target_file) as f:
+                original_code = f.read()
+        except OSError:
+            pass
 
     # Run the tests
     print("   Running tests (simulated pytest)...")
@@ -382,12 +413,15 @@ This PR was created automatically. Please review carefully before merging.
 *Iterations: {state.get("iteration_count", 1)}*
 """
 
+    # Determine which file to update in the PR (identified by investigator)
+    target_file = state.get("target_file", "") or "main.py"
+
     # Call the tool to create PR
     pr_result = open_github_pr.invoke({
         "title": title,
         "body": body,
         "fix_code": fix_code,
-        "file_path": "app.py"
+        "file_path": target_file,
     })
 
     # Check if PR was created successfully

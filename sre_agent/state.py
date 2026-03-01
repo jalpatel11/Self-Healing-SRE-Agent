@@ -36,6 +36,10 @@ class SREAgentState(TypedDict):
         root_cause_analysis: Detailed explanation of what caused the error.
                             Used by Mechanic Agent to generate appropriate fix.
 
+        target_file: Repo-relative path of the file to fix, identified from
+                    the CI logs/traceback by the Investigator Agent
+                    (e.g. "src/api/routes.py"). Empty string if unknown.
+
         fix_code: The generated Python code that fixes the identified issue.
 
         fix_validated: Boolean flag indicating if the Validator Node confirmed
@@ -66,6 +70,7 @@ class SREAgentState(TypedDict):
     root_cause_analysis: str
 
     # Fix generation phase
+    target_file: str  # repo-relative path of the file to fix (from investigator)
     fix_code: str
     fix_validated: bool
     validation_errors: list[str]
@@ -99,6 +104,7 @@ def create_initial_state(error_message: str) -> dict:
         "error_logs": "",
         "root_cause_identified": False,
         "root_cause_analysis": "",
+        "target_file": "",
         "fix_code": "",
         "fix_validated": False,
         "validation_errors": [],
