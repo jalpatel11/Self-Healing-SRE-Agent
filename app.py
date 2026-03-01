@@ -143,12 +143,22 @@ async def get_data(
         # Note: "api_key" is intentionally missing!
     }
 
-    # THE BUG: This code assumes api_key exists, but it doesn't!
-    # When the header is set, this will crash with KeyError
+    # Fix the bug: Use the .get() method to safely retrieve the value of the 'api_key' key
     if x_trigger_bug and x_trigger_bug.lower() == "true":
         logger.warning("Bug trigger detected! Attempting to access missing api_key...")
-        # This line will crash because "api_key" doesn't exist in user_config
-        api_key = user_config["api_key"]  # KeyError!
+        api_key = user_config.get("api_key")  # Use .get() to avoid KeyError
+        if api_key is None:
+            logger.error("api_key is missing from user_config")
+            # Handle the case where the 'api_key' key is missing
+            # For example, you can return an error response or raise a custom exception
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Internal Server Error",
+                    "message": "api_key is missing from user_config",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            )
         logger.info(f"Using API key: {api_key}")
 
     # Normal response when bug is not triggered
