@@ -8,9 +8,9 @@ def _fresh_settings(monkeypatch, **env_overrides):
     """Helper: reload config module with patched env vars, return a fresh Settings()."""
     for key, value in env_overrides.items():
         monkeypatch.setenv(key, value)
-    import config
-    importlib.reload(config)
-    from config import Settings
+    import sre_agent.config
+    importlib.reload(sre_agent.config)
+    from sre_agent.config import Settings
     return Settings()
 
 
@@ -43,9 +43,9 @@ def test_settings_missing_groq_key_raises(monkeypatch):
     We set GROQ_API_KEY="" (empty string) which takes env-var priority
     over the .env file, so the validator sees a falsy value.
     """
-    import config
-    importlib.reload(config)
-    from config import Settings
+    import sre_agent.config
+    importlib.reload(sre_agent.config)
+    from sre_agent.config import Settings
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("GROQ_API_KEY", "")
     with pytest.raises(Exception, match="GROQ_API_KEY"):
@@ -54,9 +54,9 @@ def test_settings_missing_groq_key_raises(monkeypatch):
 
 def test_settings_invalid_provider_raises(monkeypatch):
     """Unknown LLM_PROVIDER raises ValueError."""
-    import config
-    importlib.reload(config)
-    from config import Settings
+    import sre_agent.config
+    importlib.reload(sre_agent.config)
+    from sre_agent.config import Settings
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("GROQ_API_KEY", "some-key")
     with pytest.raises(Exception, match="LLM_PROVIDER"):

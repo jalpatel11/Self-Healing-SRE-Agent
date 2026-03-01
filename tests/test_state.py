@@ -1,5 +1,5 @@
 """Tests for state.py — SREAgentState and create_initial_state."""
-from state import create_initial_state
+from sre_agent.state import create_initial_state
 
 
 def test_initial_state_uses_utc_aware_datetime():
