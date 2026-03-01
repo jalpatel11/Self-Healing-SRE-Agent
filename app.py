@@ -112,13 +112,13 @@ async def get_data(
     x_trigger_bug: Optional[str] = Header(None, alias="X-Trigger-Bug")
 ):
     """
-    Main data endpoint with intentional bug.
+    Main data endpoint with intentional bug fixed.
 
     This endpoint demonstrates a common programming error: accessing a dictionary
     key that doesn't exist without proper error handling.
 
-    BUG: When X-Trigger-Bug header is "true", attempts to access user_config["api_key"]
-         which doesn't exist, causing a KeyError crash.
+    BUG FIX: When X-Trigger-Bug header is "true", checks if "api_key" exists in user_config
+         before attempting to access it, preventing a KeyError crash.
 
     Args:
         request: The FastAPI request object
@@ -143,13 +143,14 @@ async def get_data(
         # Note: "api_key" is intentionally missing!
     }
 
-    # THE BUG: This code assumes api_key exists, but it doesn't!
-    # When the header is set, this will crash with KeyError
+    # BUG FIX: Check if "api_key" exists in user_config before accessing it
     if x_trigger_bug and x_trigger_bug.lower() == "true":
-        logger.warning("Bug trigger detected! Attempting to access missing api_key...")
-        # This line will crash because "api_key" doesn't exist in user_config
-        api_key = user_config["api_key"]  # KeyError!
-        logger.info(f"Using API key: {api_key}")
+        logger.warning("Bug trigger detected! Checking for api_key in user_config...")
+        api_key = user_config.get("api_key")  # Use get() to avoid KeyError
+        if api_key:
+            logger.info(f"Using API key: {api_key}")
+        else:
+            logger.warning("api_key not found in user_config. Skipping API key usage.")
 
     # Normal response when bug is not triggered
     return DataResponse(
