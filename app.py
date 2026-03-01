@@ -117,8 +117,8 @@ async def get_data(
     This endpoint demonstrates a common programming error: accessing a dictionary
     key that doesn't exist without proper error handling.
 
-    BUG: When X-Trigger-Bug header is "true", attempts to access user_config["api_key"]
-         which doesn't exist, causing a KeyError crash.
+    BUG FIX: When X-Trigger-Bug header is "true", attempts to access user_config.get("api_key")
+         which returns None if the key doesn't exist, avoiding a KeyError crash.
 
     Args:
         request: The FastAPI request object
@@ -143,13 +143,14 @@ async def get_data(
         # Note: "api_key" is intentionally missing!
     }
 
-    # THE BUG: This code assumes api_key exists, but it doesn't!
-    # When the header is set, this will crash with KeyError
+    # BUG FIX: Use get() method to safely access the "api_key" key
     if x_trigger_bug and x_trigger_bug.lower() == "true":
         logger.warning("Bug trigger detected! Attempting to access missing api_key...")
-        # This line will crash because "api_key" doesn't exist in user_config
-        api_key = user_config["api_key"]  # KeyError!
-        logger.info(f"Using API key: {api_key}")
+        api_key = user_config.get("api_key")  # Returns None if key doesn't exist
+        if api_key is None:
+            logger.error("API key is missing from user configuration")
+        else:
+            logger.info(f"Using API key: {api_key}")
 
     # Normal response when bug is not triggered
     return DataResponse(
